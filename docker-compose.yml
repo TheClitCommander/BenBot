@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # Backtester API
+  backtester:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+    command: python /app/backtester_api.py
+    restart: unless-stopped
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # React Frontend
+  frontend:
+    build:
+      context: ..
+      dockerfile: Trading:BenBot/Dockerfile.frontend
+    ports:
+      - "3003:80"
+    depends_on:
+      - api
+      - backtester
+    restart: unless-stopped
+    volumes:
+      - ./nginx/logs:/var/log/nginx
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=http://localhost:8000
+      - VITE_BACKTESTER_API_URL=http://localhost:5002
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # Nginx proxy for API gateway (optional but recommended for production)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf:/etc/nginx/conf.d
+      - ./nginx/logs:/var/log/nginx
+      - ./nginx/certs:/etc/nginx/ssl
+      - ./nginx/www:/var/www/html
+    depends_on:
+      - api
+      - backtester
+      - frontend
+    restart: unless-stopped
+    # Uncomment for production with HTTPS
+    # command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+
+volumes:
+  app-data:
+  logs:
+  
+networks:
+  default:
+    name: trading-network
