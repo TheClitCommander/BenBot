@@ -1,78 +1,65 @@
-# Trading Dashboard
+# BensBot Trading Dashboard
 
-A modern frontend dashboard for monitoring and controlling automated trading activities.
-
-## Overview
-
-This dashboard provides a complete interface for:
-
-1. **Safety Controls**: Monitor and control trading guardrails like emergency stops, circuit breakers, and cooldown periods
-2. **Performance Tracking**: Visualize trading performance with equity curves, position tables, and signal logs
-3. **Strategy Management**: View strategy evolution and performance metrics (coming soon)
+A modern React dashboard for monitoring and controlling the BensBot multi-asset trading system.
 
 ## Features
 
-### Safety Controls
+- **System Health Monitoring**: Real-time monitoring of system components, data feeds, and resource usage
+- **Trading Performance Visualization**: Charts and metrics for trading performance analysis
+- **Strategy Management**: View, edit, and activate trading strategies
+- **Safety Controls**: Emergency stop features and circuit breakers
+- **Portfolio Management**: Asset allocation visualization and management
 
-- Emergency Stop switch for immediate trading halt
-- Trading Mode toggle (Live/Paper)
-- Circuit Breaker status and management
-- Cooldown Timer display
-- Safety Event History log
+## System Architecture
 
-### Performance Dashboard
+The dashboard connects to the BensBot backend API to retrieve data and control the trading system. The UI is built with:
 
-- Equity Curve visualization
-- Current Positions table with real-time data
-- Signal Log for tracking recent trading signals
-- Performance metrics and statistics
+- React for the component structure
+- TypeScript for type safety
+- TailwindCSS for styling
+- React Query for data fetching and caching
+- Lucide for icons and visual elements
 
-### Coming Soon
+## Screenshots
 
-- Strategy Evolution tracking
-- Custom Alert creation
-- Backtesting and optimization interface
-- User Account management
+![System Health Panel](./public/screenshots/system-health.png)
+![Strategy Dashboard](./public/screenshots/strategy-dashboard.png)
 
 ## Getting Started
 
-### Prerequisites
+1. Clone the repository
+2. Install dependencies:
+   ```
+   npm install
+   ```
+3. Start the development server:
+   ```
+   npm run dev
+   ```
 
-- Node.js 16+
-- npm or yarn
+## Environment Configuration
 
-### Installation
+Create a `.env` file with the following variables:
 
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Build for production
-npm run build
+```
+REACT_APP_API_URL=http://localhost:8000  # Replace with your backend API URL
 ```
 
-### Configuration
+## Main Components
 
-Configure the API endpoints in:
-- `src/services/safetyApi.ts`
-- `src/services/websocket.ts`
+- **Dashboard**: Main container component that manages the application state
+- **SystemHealthPanel**: Monitoring component for system health
+- **PerformanceChart**: Trading performance visualization
+- **SafetyControls**: Trading safety controls and circuit breakers
+- **StrategyTrainer**: Strategy creation and optimization interface
 
-## Connecting to Backend
+## API Services
 
-This dashboard connects to the trading bot API via:
+- **orchestrationApi**: Core trading functionality API
+- **healthMonitorApi**: System health monitoring API
+- **safetyApi**: Trading safety controls API
+- **evolutionApi**: Strategy evolution API
 
-1. REST API for configuration and commands
-2. WebSockets for real-time updates
+## License
 
-## Development
-
-The dashboard is built with:
-
-- React
-- TypeScript
-- Tailwind CSS
-- Recharts
-- React Query 
+Copyright (c) 2023 Ben Dickinson. All rights reserved. 

@@ -1,12 +1,20 @@
 """
-Trading system alerting module.
+Alerts package for BensBot.
 
-This module provides functionality for sending alerts through various channels:
-- Telegram messages
+This package provides alert and notification services:
 - Email notifications
-- Webhook triggers
+- Telegram messages
+- Webhook calls
+- Prometheus metrics
 """
 
 from trading_bot.core.alerts.alert_service import AlertService, AlertLevel, AlertChannel
+from trading_bot.core.alerts.monitoring import MetricsExporter, EnhancedAlertService
 
-__all__ = ["AlertService", "AlertLevel", "AlertChannel"] 
+__all__ = [
+    "AlertService",
+    "AlertLevel",
+    "AlertChannel",
+    "MetricsExporter",
+    "EnhancedAlertService"
+] 

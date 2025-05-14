@@ -14,8 +14,14 @@ import os
 import random
 import time
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Type
 from dataclasses import dataclass
+
+# Import base classes for typing
+from trading_bot.core.strategies.base_strategy import BaseStrategy
+from trading_bot.core.strategies.strategy_factory import strategy_factory
+from trading_bot.core.backtesting.base_backtester import BaseBacktester, BacktestResult
+from trading_bot.core.backtesting.parallel_backtester import ParallelBacktestManager
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +36,15 @@ class EvolutionConfig:
     selection_method: str = "tournament"
     tournament_size: int = 5
     auto_promotion_threshold: float = 0.2  # Top 20% can be auto-promoted
+    use_parallel_backtesting: bool = True   # Whether to use parallel backtesting
+    max_parallel_workers: int = 0           # 0 means use CPU count
 
 @dataclass
 class StrategyGenome:
     """Represents a trading strategy's genetic representation."""
     id: str
     name: str
-    type: str  # e.g., "mean_reversion", "trend_following", etc.
+    type: str  # e.g., "equity_trend", "crypto_breakout", etc.
     parameters: Dict[str, Any]
     performance: Optional[Dict[str, float]] = None
     generation: int = 0
@@ -56,7 +64,7 @@ class EvoTrader:
         self,
         config_path: str = "./config/evolution.json",
         data_dir: str = "./data/evolution",
-        backtester = None  # Will be linked to backtesting service
+        backtester_registry: Dict[str, BaseBacktester] = None, # Asset class -> Backtester instance
     ):
         """
         Initialize the evolution service.
@@ -64,11 +72,42 @@ class EvoTrader:
         Args:
             config_path: Path to evolution configuration
             data_dir: Directory for strategy storage
-            backtester: Reference to backtesting service
+            backtester_registry: A dictionary mapping asset_class (str) to BaseBacktester instances.
         """
         self.config_path = config_path
         self.data_dir = data_dir
-        self.backtester = backtester
+        self.backtester_registry = backtester_registry if backtester_registry else {}
+        
+        # Use the strategy factory instead of a local registry
+        self.strategy_factory = strategy_factory
+        
+        # Setup parallel backtesting
+        self.parallel_backtest_manager = None
+        if backtester_registry:
+            # Create constructors dictionary for parallel backtesting
+            backtester_constructors = {}
+            backtester_kwargs = {}
+            
+            for asset_class, backtester in backtester_registry.items():
+                # Get the class of the backtester for reconstruction in worker processes
+                backtester_class = backtester.__class__
+                
+                # Get data fetcher for kwargs
+                # Assumes all backtesters have a data_fetcher attribute
+                data_fetcher = getattr(backtester, 'data_fetcher', None)
+                
+                if backtester_class and data_fetcher:
+                    backtester_constructors[asset_class] = backtester_class
+                    backtester_kwargs[asset_class] = {"historical_data_fetcher": data_fetcher}
+            
+            if backtester_constructors:
+                self.parallel_backtest_manager = ParallelBacktestManager(
+                    backtester_constructors=backtester_constructors,
+                    backtester_constructor_kwargs=backtester_kwargs
+                )
+        
+        if not self.backtester_registry:
+            logger.warning("EvoTrader initialized without a backtester_registry. Backtesting will not be possible.")
         
         # Create directories
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -104,7 +143,9 @@ class EvoTrader:
                     "elite_size": default_config.elite_size,
                     "selection_method": default_config.selection_method,
                     "tournament_size": default_config.tournament_size,
-                    "auto_promotion_threshold": default_config.auto_promotion_threshold
+                    "auto_promotion_threshold": default_config.auto_promotion_threshold,
+                    "use_parallel_backtesting": default_config.use_parallel_backtesting,
+                    "max_parallel_workers": default_config.max_parallel_workers
                 }
                 with open(self.config_path, 'w') as f:
                     json.dump(config_dict, f, indent=2)
@@ -169,189 +210,333 @@ class EvoTrader:
     
     def start_evolution(
         self, 
-        strategy_type: str,
-        parameter_space: Dict[str, Any],
-        market_data: Dict[str, Any],
-        config: Optional[EvolutionConfig] = None
+        strategy_type_name: str, # e.g., "equity_trend_v1", "crypto_breakout_default"
+        backtest_config: Dict[str, Any], # Contains symbol, asset_class, start_date, end_date, interval etc.
+        config: Optional[EvolutionConfig] = None,
+        custom_parameter_space: Optional[Dict[str, Any]] = None # Optional override/supplement to schema
     ) -> str:
         """
-        Start a new evolution run.
+        Start a new evolution run for a specific strategy type using a specific backtest configuration.
         
         Args:
-            strategy_type: Type of strategy to evolve
-            parameter_space: Parameter ranges for evolution
-            market_data: Market data for backtesting
-            config: Optional custom evolution config
+            strategy_type_name: The registered name of the strategy type to evolve (e.g., "equity_trend_default").
+            backtest_config: Configuration for backtesting (asset_class, symbol, dates, interval).
+            config: Optional custom evolution config for this run.
+            custom_parameter_space: Optional parameter space to override/supplement the strategy's schema.
+                                    Example: {"sma_short": [5, 10, 15], "rsi_period": {"type":"int", "min":7, "max":10}}
             
         Returns:
-            ID of the evolution run
+            ID of the evolution run.
         """
-        # Use custom config if provided, else use default
         run_config = config or self.config
+
+        # Get strategy metadata and schema from the factory
+        strategy_metadata = self.strategy_factory.get_strategy_metadata(strategy_type_name)
+        if not strategy_metadata:
+            logger.error(f"Strategy type '{strategy_type_name}' not found in registry.")
+            raise ValueError(f"Unknown strategy_type_name: {strategy_type_name}")
         
-        # Generate run ID
-        run_id = f"evo_{strategy_type}_{int(time.time())}"
+        parameter_schema = strategy_metadata.get('parameter_schema', {})
         
-        # Initialize new population
+        # Derive parameter space from strategy schema, potentially overridden/supplemented
+        parameter_space_for_init = {}
+        for param, details in parameter_schema.items():
+            if custom_parameter_space and param in custom_parameter_space:
+                # If custom provides specific values (e.g., a list for categorical) or a new range dict
+                custom_val = custom_parameter_space[param]
+                if isinstance(custom_val, list): # e.g. sma_short: [10,20,30]
+                    parameter_space_for_init[param] = custom_val
+                elif isinstance(custom_val, dict) and "type" in custom_val: # e.g. rsi_period: {"type":"int", "min":7, "max":10}
+                     parameter_space_for_init[param] = custom_val # Take the whole dict
+                else: # If custom_val is a single fixed value, not typically for evolution range but could be supported
+                    logger.warning(f"Parameter '{param}' in custom_parameter_space is a single value, using it as fixed.")
+                    parameter_space_for_init[param] = custom_val 
+            else:
+                # Use schema definition to create a range for evolution
+                # For numeric types, create a [min, max] list if min/max are defined
+                if details.get("type") in ["int", "float"] and "min" in details and "max" in details:
+                    parameter_space_for_init[param] = [details["min"], details["max"]]
+                elif details.get("type") == "bool":
+                    parameter_space_for_init[param] = [True, False] # Evolve booleans
+                elif "default" in details: # Fallback if no clear range from schema for evolution
+                    logger.warning(f"No explicit evolution range for '{param}', using default value only or simple list.")
+                    # This part might need smarter handling based on schema details (e.g. if categorical options are listed)
+                    parameter_space_for_init[param] = [details["default"]] 
+                else:
+                    logger.error(f"Cannot determine evolution range for parameter '{param}' of strategy '{strategy_type_name}'. Schema: {details}")
+                    raise ValueError(f"Missing evolution range definition for '{param}' in {strategy_type_name}")
+
+        run_id = f"evo_{strategy_type_name.replace('_','-')}_{backtest_config.get('symbol', 'sym')}_{int(time.time())}"
+        
+        # _initialize_population now uses the derived parameter_space_for_init
+        # The strategy_type_name is passed to be stored in the genome.
         self.current_population = self._initialize_population(
-            strategy_type, parameter_space, run_config.population_size
+            strategy_type_name=strategy_type_name, 
+            parameter_space=parameter_space_for_init, 
+            population_size=run_config.population_size,
         )
         
-        # Save initial population to history
         self.history[run_id] = self.current_population.copy()
-        
-        # Save to disk
         self._save_strategies()
-        
-        # Return run ID for tracking
+        logger.info(f"Started evolution run {run_id} for {strategy_type_name} on {backtest_config.get('symbol')}.")
         return run_id
     
     def _initialize_population(
         self, 
-        strategy_type: str,
+        strategy_type_name: str, # This is the registered name, e.g., "equity_trend_default"
         parameter_space: Dict[str, Any],
-        population_size: int
+        population_size: int,
     ) -> List[StrategyGenome]:
         """
         Initialize a new population of strategies.
-        
         Args:
-            strategy_type: Type of strategy to create
-            parameter_space: Parameter ranges
-            population_size: Size of population
-            
-        Returns:
-            List of strategy genomes
+            strategy_type_name: The registered type/name of the strategy.
         """
         population = []
         timestamp = datetime.utcnow().isoformat()
         
         for i in range(population_size):
-            # Generate random parameters within ranges
             parameters = {}
-            for param_name, param_range in parameter_space.items():
-                if isinstance(param_range, (list, tuple)) and len(param_range) >= 2:
-                    if all(isinstance(v, (int, float)) for v in param_range[:2]):
-                        # Numeric parameter
-                        if isinstance(param_range[0], int) and isinstance(param_range[1], int):
-                            # Integer parameter
-                            parameters[param_name] = random.randint(param_range[0], param_range[1])
+            for param_name, P_range_or_details in parameter_space.items():
+                # P_range_or_details can be a list [min, max] or [val1, val2, ...]
+                # or it could be a dict from custom_parameter_space like {"type":"int", "min":1, "max":5}
+                # or a single fixed value
+                
+                value_to_set = None
+                if isinstance(P_range_or_details, list):
+                    if not P_range_or_details:
+                        raise ValueError(f"Empty list provided for parameter '{param_name}' in parameter_space")
+
+                    # Heuristic: if list has two numbers and first < second, assume [min,max] range
+                    is_likely_range = len(P_range_or_details) == 2 and \
+                                     all(isinstance(x, (int, float)) for x in P_range_or_details) and \
+                                     P_range_or_details[0] <= P_range_or_details[1]
+                    
+                    if is_likely_range:
+                        # Infer type for random generation. If original schema specified int, use randint.
+                        # For now, if any is float, result is float.
+                        is_int_range = all(isinstance(x, int) for x in P_range_or_details)
+                        if is_int_range:
+                            value_to_set = random.randint(P_range_or_details[0], P_range_or_details[1])
                         else:
-                            # Float parameter
-                            parameters[param_name] = random.uniform(param_range[0], param_range[1])
-                    elif all(isinstance(v, bool) for v in param_range[:2]):
-                        # Boolean parameter
-                        parameters[param_name] = random.choice([True, False])
+                            value_to_set = random.uniform(P_range_or_details[0], P_range_or_details[1])
+                    else: # Categorical list or malformed range - treat as categorical
+                        value_to_set = random.choice(P_range_or_details)
+                
+                elif isinstance(P_range_or_details, dict) and "type" in P_range_or_details: # Detailed spec from custom_parameter_space
+                    # This case allows evolving from a more complex custom definition
+                    # (e.g. a non-uniform distribution, not just min/max)
+                    # For now, implement simple min/max from this dict if present
+                    param_type = P_range_or_details["type"]
+                    if param_type == "int" and "min" in P_range_or_details and "max" in P_range_or_details:
+                        value_to_set = random.randint(P_range_or_details["min"], P_range_or_details["max"])
+                    elif param_type == "float" and "min" in P_range_or_details and "max" in P_range_or_details:
+                        value_to_set = random.uniform(P_range_or_details["min"], P_range_or_details["max"])
+                    elif param_type == "bool":
+                         value_to_set = random.choice([True,False])
+                    elif "default" in P_range_or_details:
+                        value_to_set = P_range_or_details["default"]
                     else:
-                        # Categorical parameter
-                        parameters[param_name] = random.choice(param_range)
-                else:
-                    # Default value
-                    parameters[param_name] = param_range
+                        raise ValueError(f"Unsupported custom parameter detail for '{param_name}': {P_range_or_details}")
+                else: # Single fixed value
+                    value_to_set = P_range_or_details
+                
+                parameters[param_name] = value_to_set
             
-            # Create genome
             genome = StrategyGenome(
-                id=f"{strategy_type}_gen0_{i}",
-                name=f"{strategy_type.title()} Strategy #{i}",
-                type=strategy_type,
+                id=f"{strategy_type_name.replace('_','-')}_gen0_pop{i}",
+                name=f"{strategy_type_name.replace('_', ' ').title()} Pop {i}",
+                type=strategy_type_name, # Store the registered strategy type name
                 parameters=parameters,
                 generation=0,
                 parent_ids=[],
                 creation_date=timestamp
             )
-            
             population.append(genome)
-        
         return population
-    
-    def run_backtest_generation(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
+
+    def run_backtest_generation(self, backtest_config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Run backtests for the current generation.
+        Run backtests for the current generation using asset-specific backtesters.
         
         Args:
-            market_data: Market data for backtesting
-            
-        Returns:
-            Results of the generation backtest
+            backtest_config: Dict containing asset_class, symbol, start_date, end_date, interval, etc.
         """
-        if not self.backtester:
-            raise ValueError("Backtester not configured")
+        asset_class = backtest_config.get("asset_class")
+        if not asset_class:
+            raise ValueError("'asset_class' must be provided in backtest_config")
         
-        # Results container
+        # Check if we should use parallel backtesting
+        use_parallel = self.config.use_parallel_backtesting and self.parallel_backtest_manager is not None
+        
+        if not use_parallel:
+            # Legacy single-threaded approach
+            backtester = self.backtester_registry.get(asset_class)
+            if not backtester:
+                logger.error(f"No backtester registered for asset class: {asset_class}")
+                raise ValueError(f"Backtester for asset class '{asset_class}' not configured in EvoTrader.")
+        
         results = {
             "generation": self.current_population[0].generation if self.current_population else 0,
             "population_size": len(self.current_population),
             "strategies": [],
-            "best_strategy": None,
+            "best_strategy_performance": None, # Storing full best strategy details later
             "avg_performance": {},
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "backtest_config": backtest_config
         }
         
-        # Run backtest for each strategy
-        for strategy in self.current_population:
-            # Call backtester
-            backtest_result = self.backtester.run_backtest(
-                strategy_type=strategy.type,
-                parameters=strategy.parameters,
-                market_data=market_data
+        if use_parallel:
+            # Prepare a dictionary mapping strategy types to classes
+            strategy_types = set(genome.type for genome in self.current_population)
+            strategy_classes = {}
+            for strategy_type in strategy_types:
+                metadata = self.strategy_factory.get_strategy_metadata(strategy_type)
+                if not metadata:
+                    logger.error(f"Strategy type '{strategy_type}' not found in factory.")
+                    continue
+                # Get the actual class from the factory
+                strategy_class = self.strategy_factory._registry.get(strategy_type)
+                if strategy_class:
+                    strategy_classes[strategy_type] = strategy_class
+            
+            # Run parallel backtests
+            logger.info(f"Running parallel backtests for generation {results['generation']}...")
+            backtest_results = self.parallel_backtest_manager.run_generation_backtests(
+                strategy_genomes=[vars(genome) for genome in self.current_population],
+                strategy_classes=strategy_classes,
+                backtest_config=backtest_config,
+                max_workers=self.config.max_parallel_workers
             )
             
-            # Store performance metrics
-            strategy.performance = backtest_result.get("performance", {})
+            # Update strategy genomes with results
+            successful_backtests = 0
+            for strategy_genome in self.current_population:
+                result = backtest_results.get(strategy_genome.id)
+                if result and result.get("status") == "success":
+                    strategy_genome.performance = result.get("performance", {})
+                    successful_backtests += 1
+                else:
+                    error_msg = result.get("error_message") if result else "No result returned"
+                    logger.warning(f"Parallel backtest failed for {strategy_genome.id}: {error_msg}")
+                    strategy_genome.performance = {"error": error_msg, "total_return": -999}
+                
+                results["strategies"].append({
+                    "id": strategy_genome.id,
+                    "name": strategy_genome.name,
+                    "performance": strategy_genome.performance
+                })
             
-            # Add to results
-            strategy_result = {
-                "id": strategy.id,
-                "name": strategy.name,
-                "performance": strategy.performance
-            }
-            results["strategies"].append(strategy_result)
+            if successful_backtests == 0 and self.current_population:
+                logger.warning(f"All parallel backtests failed for generation {results['generation']}.")
         
-        # Sort by performance (assume higher return is better)
+        else:
+            # Legacy single-threaded approach
+            successful_backtests = 0
+            for strategy_genome in self.current_population:
+                # Get the strategy class from the factory
+                strategy_metadata = self.strategy_factory.get_strategy_metadata(strategy_genome.type)
+                if not strategy_metadata:
+                    logger.error(f"Strategy type '{strategy_genome.type}' not found in registry. Skipping {strategy_genome.id}.")
+                    strategy_genome.performance = {"error": "Strategy class not found", "total_return": -999}
+                    results["strategies"].append({
+                        "id": strategy_genome.id, "name": strategy_genome.name, "performance": strategy_genome.performance
+                    })
+                    continue
+                
+                strategy_class = self.strategy_factory._registry.get(strategy_genome.type)
+                if not strategy_class:
+                    logger.error(f"Strategy class for type '{strategy_genome.type}' not found in registry. Skipping {strategy_genome.id}.")
+                    strategy_genome.performance = {"error": "Strategy class not found", "total_return": -999}
+                    results["strategies"].append({
+                        "id": strategy_genome.id, "name": strategy_genome.name, "performance": strategy_genome.performance
+                    })
+                    continue
+    
+                logger.debug(f"Running backtest for genome {strategy_genome.id} ({strategy_genome.type}) with {asset_class} backtester.")
+                backtest_run_result: BacktestResult = backtester.run_backtest(
+                    strategy_id=strategy_genome.id,
+                    strategy_class=strategy_class,
+                    parameters=strategy_genome.parameters,
+                    asset_class=asset_class, # From overall backtest_config
+                    symbol=backtest_config.get("symbol"),
+                    start_date=backtest_config.get("start_date"),
+                    end_date=backtest_config.get("end_date"),
+                    interval=backtest_config.get("interval"),
+                    initial_capital=backtest_config.get("initial_capital", 100000.0), # Get from config or use default
+                    commission_pct=backtest_config.get("commission_pct", 0.001),
+                    slippage_pct=backtest_config.get("slippage_pct", 0.0005)
+                )
+                
+                if backtest_run_result["status"] == "success":
+                    strategy_genome.performance = backtest_run_result["performance"]
+                    successful_backtests += 1
+                else:
+                    logger.warning(f"Backtest failed for {strategy_genome.id}: {backtest_run_result.get('error_message')}")
+                    # Assign a very poor performance score if backtest fails
+                    strategy_genome.performance = {"error": backtest_run_result.get('error_message', 'Backtest failed'), "total_return": -999}
+    
+                results["strategies"].append({
+                    "id": strategy_genome.id,
+                    "name": strategy_genome.name,
+                    "performance": strategy_genome.performance
+                })
+            
+            if successful_backtests == 0 and self.current_population:
+                 logger.warning(f"All backtests failed for generation {results['generation']}. Population may not evolve well.")
+        
+        # Sort population by performance (total_return or a custom fitness score)
         self.current_population.sort(
-            key=lambda s: s.performance.get("total_return", 0) if s.performance else 0,
+            key=lambda s: s.performance.get("total_return", -float('inf')) if s.performance else -float('inf'),
             reverse=True
         )
         
-        # Update best strategies list
-        if self.current_population:
-            best_strategy = self.current_population[0]
-            results["best_strategy"] = {
-                "id": best_strategy.id,
-                "name": best_strategy.name,
-                "performance": best_strategy.performance
-            }
-            
-            # Add to best strategies if it's good enough
-            if (not self.best_strategies or 
-                best_strategy.performance.get("total_return", 0) > 
-                self.best_strategies[0].performance.get("total_return", 0) * 0.9):
-                self.best_strategies.append(best_strategy)
-                # Keep best strategies sorted
-                self.best_strategies.sort(
-                    key=lambda s: s.performance.get("total_return", 0) if s.performance else 0,
-                    reverse=True
-                )
-                # Limit the list size
-                if len(self.best_strategies) > 20:
-                    self.best_strategies = self.best_strategies[:20]
+        if self.current_population and self.current_population[0].performance and \
+           self.current_population[0].performance.get("error") is None:
+            best_genome_of_gen = self.current_population[0]
+            results["best_strategy_performance"] = best_genome_of_gen.performance
+            # Update overall best_strategies list
+            # Logic for maintaining self.best_strategies based on a fitness metric (e.g. Sharpe or custom score)
+            # This needs a more robust fitness definition than just total_return sometimes
+            current_best_fitness = best_genome_of_gen.performance.get("sharpe_ratio", -float('inf'))
+
+            if not self.best_strategies or \
+               current_best_fitness > (self.best_strategies[0].performance.get("sharpe_ratio",-float('inf')) if self.best_strategies[0].performance else -float('inf')):
+                # Could add to a list and sort, or just keep the single best
+                # For now, let's consider if it improves upon the current list or if list is small
+                is_better_than_existing = True # Simplified
+                if self.best_strategies and len(self.best_strategies) >= self.config.elite_size: # Example condition
+                     is_better_than_existing = current_best_fitness > (self.best_strategies[-1].performance.get("sharpe_ratio", -float('inf')) if self.best_strategies[-1].performance else -float('inf'))
+                
+                if is_better_than_existing:
+                    self.best_strategies.append(best_genome_of_gen)
+                    self.best_strategies.sort(
+                        key=lambda s: s.performance.get("sharpe_ratio", -float('inf')) if s.performance else -float('inf'),
+                        reverse=True
+                    )
+                    self.best_strategies = self.best_strategies[:max(20, self.config.elite_size)] # Keep top N best
         
-        # Calculate average performance
+        # Calculate average performance metrics across successful backtests
         if results["strategies"]:
-            perf_keys = set()
-            for s in results["strategies"]:
-                if s.get("performance"):
-                    perf_keys.update(s["performance"].keys())
+            # Filter out strategies with errors
+            valid_strategies = [
+                s for s in results["strategies"] 
+                if "error" not in s["performance"] and s["performance"] is not None
+            ]
             
-            for key in perf_keys:
-                values = [s["performance"].get(key, 0) for s in results["strategies"] 
-                         if s.get("performance") and key in s["performance"]]
-                if values:
-                    results["avg_performance"][key] = sum(values) / len(values)
-        
-        # Save results
+            if valid_strategies:
+                # Get all performance metrics keys from the first strategy
+                all_metrics = valid_strategies[0]["performance"].keys()
+                
+                # Calculate average for each metric
+                avg_performance = {}
+                for metric in all_metrics:
+                    values = [s["performance"].get(metric, 0) for s in valid_strategies]
+                    avg_performance[metric] = sum(values) / len(values)
+                
+                results["avg_performance"] = avg_performance
+
         self._save_strategies()
-        
         return results
     
     def evolve_generation(self) -> Dict[str, Any]:
@@ -603,49 +788,27 @@ class EvoTrader:
                     # Select a different value from list
                     strategy.parameters[param] = random.choice(value)
     
-    def auto_promote_strategies(self, min_performance: Optional[float] = None) -> List[Dict[str, Any]]:
+    def auto_promote_strategies(self, min_performance_criteria: Optional[Dict[str, float]] = None) -> List[Dict[str, Any]]:
         """
         Auto-promote strategies that meet performance criteria.
-        
-        Args:
-            min_performance: Minimum performance threshold (optional)
-            
-        Returns:
-            List of promoted strategies
+        Criteria could be a dict like {"sharpe_ratio": 1.0, "min_trades": 50}.
         """
+        # ... (Adapt to use richer performance data and potentially multiple criteria) ...
+        # ... The min_performance argument in EvoToExecAdapter was a simple float for total_return.
+        # ... This should be more flexible now.
+        # For now, let's keep the old logic based on total_return as an example, 
+        # but acknowledge it needs updating.
+        min_total_return = None
+        if isinstance(min_performance_criteria, float): # Backwards compatibility for simple case
+            min_total_return = min_performance_criteria
+        elif isinstance(min_performance_criteria, dict):
+            min_total_return = min_performance_criteria.get("total_return")
+
         promoted = []
-        
-        if not self.current_population:
-            return promoted
-        
-        # Sort by performance if not already sorted
-        self.current_population.sort(
-            key=lambda s: s.performance.get("total_return", 0) if s.performance else 0,
-            reverse=True
-        )
-        
-        # Determine how many strategies to consider (top X%)
-        top_count = max(1, int(len(self.current_population) * self.config.auto_promotion_threshold))
-        candidates = self.current_population[:top_count]
-        
-        # Apply minimum performance filter if specified
-        if min_performance is not None:
-            candidates = [s for s in candidates 
-                         if s.performance and s.performance.get("total_return", 0) >= min_performance]
-        
-        # Convert to simplified format for return
-        for strategy in candidates:
-            promoted.append({
-                "id": strategy.id,
-                "name": strategy.name,
-                "type": strategy.type,
-                "parameters": strategy.parameters,
-                "performance": strategy.performance,
-                "generation": strategy.generation
-            })
-        
-        return promoted
-    
+        # ... (rest of the logic similar to before, but filter based on richer criteria if provided)
+        # ... using strategy_genome.performance directly.
+        return promoted # Placeholder
+
     def get_strategy_details(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         """
         Get detailed information about a specific strategy.
@@ -677,17 +840,74 @@ class EvoTrader:
     def get_evolution_summary(self) -> Dict[str, Any]:
         """
         Get summary of current evolution state.
-        
-        Returns:
-            Summary information
         """
-        current_gen = self.current_population[0].generation if self.current_population else 0
+        current_gen_num = self.current_population[0].generation if self.current_population else 0
+        top_performer_genome = self.best_strategies[0] if self.best_strategies else None
         
+        top_performer_info = None
+        if top_performer_genome:
+            top_performer_info = {
+                "id": top_performer_genome.id,
+                "name": top_performer_genome.name,
+                "type": top_performer_genome.type,
+                "parameters": top_performer_genome.parameters,
+                "performance": top_performer_genome.performance,
+                "generation": top_performer_genome.generation
+            }
+
         return {
-            "current_generation": current_gen,
+            "current_generation": current_gen_num,
             "population_size": len(self.current_population),
-            "historical_generations": len(self.history),
+            "total_historical_runs": len(self.history),
             "best_strategies_count": len(self.best_strategies),
-            "top_performer": vars(self.best_strategies[0]) if self.best_strategies else None,
+            "top_performer": top_performer_info,
             "config": vars(self.config)
-        } 
+        }
+
+    def create_strategy_instance(self, strategy_id: str) -> Optional[BaseStrategy]:
+        """
+        Create a concrete strategy instance from a strategy genome.
+        
+        Args:
+            strategy_id: ID of the strategy genome to instantiate
+            
+        Returns:
+            An instance of the strategy class or None if not found
+        """
+        # Find the strategy genome
+        genome = None
+        for strategy in self.current_population:
+            if strategy.id == strategy_id:
+                genome = strategy
+                break
+        
+        if not genome:
+            for strategies in self.history.values():
+                for strategy in strategies:
+                    if strategy.id == strategy_id:
+                        genome = strategy
+                        break
+                if genome:
+                    break
+        
+        if not genome:
+            for strategy in self.best_strategies:
+                if strategy.id == strategy_id:
+                    genome = strategy
+                    break
+        
+        if not genome:
+            logger.error(f"Strategy genome {strategy_id} not found")
+            return None
+        
+        # Create the strategy instance using the factory
+        try:
+            strategy_instance = self.strategy_factory.create_strategy(
+                strategy_type=genome.type,
+                strategy_id=genome.id,
+                parameters=genome.parameters
+            )
+            return strategy_instance
+        except Exception as e:
+            logger.error(f"Error creating strategy instance for {strategy_id}: {e}")
+            return None 

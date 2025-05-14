@@ -1,14 +1,11 @@
 """
-Strategy evolution module for automated trading strategy improvement.
+Evolution Package for BensBot.
 
-This module provides:
-- Genetic algorithm-based strategy evolution
-- Performance-based strategy selection
-- Strategy parameter optimization
-- Auto-promotion of successful strategies
+This package contains the evolution engine and related components
+for evolving trading strategies across different asset classes.
 """
 
-from trading_bot.core.evolution.evo_trader import EvoTrader, EvolutionConfig, StrategyGenome
-from trading_bot.core.evolution.backtest_grid import BacktestGrid
+from trading_bot.core.evolution.evo_trader import EvoTrader
+from trading_bot.core.evolution.market_adapter import MarketAdapter, MarketRegime
 
-__all__ = ["EvoTrader", "EvolutionConfig", "StrategyGenome", "BacktestGrid"] 
+__all__ = ["EvoTrader", "MarketAdapter", "MarketRegime"] 
