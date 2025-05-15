@@ -1,6 +1,76 @@
-# BensBot Trading System: Evolution to Execution Integration
+# BensBot Trading System
 
-This project connects the EvoTrader genetic algorithm-based strategy evolution system with live execution capabilities for automated trading.
+A reactive trading system with FastAPI backend and React dashboard frontend.
+
+## Project Structure
+
+```
+.
+├── trading-dashboard/        # React frontend
+├── trading_bot/              # Python trading system backend
+│   └── api/                  # FastAPI backend application
+├── dev_tools/                # Development utilities
+├── docker/                   # Docker configuration
+├── docs/                     # Documentation
+└── data/                     # Trading data and logs
+```
+
+## Quick Start
+
+### Development Environment
+
+1. Run the consolidated startup script:
+
+```bash
+./run_bensbot.sh
+```
+
+This will:
+- Start the FastAPI backend (port 8000)
+- Start the React dev server (port 5173)
+- Configure proper environment variables
+
+2. Visit the frontend at: http://localhost:5173
+3. API endpoints are available at: http://localhost:8000
+
+### Using Docker
+
+```bash
+docker-compose up -d
+```
+
+Access the frontend at: http://localhost:5173
+API endpoints are available at: http://localhost:8000
+
+## Integration Points
+
+The frontend connects to the backend via:
+
+- REST API at `/api/*` endpoints
+- WebSocket connections at `/ws`
+
+For detailed API documentation, visit http://localhost:8000/docs when the backend is running.
+
+## Configuration
+
+Environment variables can be set in:
+
+- `trading-dashboard/.env.local` for frontend
+- `.env` for backend
+
+## Development Notes
+
+- A clean codebase can be achieved with: `./cleanup.sh`
+- The API backend uses FastAPI and requires Python 3.10+
+- The frontend uses React, Vite, and TypeScript
+- WebSocket connections provide real-time updates
+
+## Documentation
+
+For more detailed information, see the following guides:
+- [Production Guide](docs/production-guide.md)
+- [System Guide](docs/system-guide.md)
+- [Launch Checklist](docs/launch-checklist.md)
 
 ## Key Components
 
@@ -108,51 +178,3 @@ url = f"http://localhost:8000/execution/strategies/{strategy_id}/activate"
 response = requests.post(url)
 print(response.json())
 ```
-
-### Get LLM Evaluation for a Strategy
-
-```python
-import requests
-import json
-
-url = "http://localhost:8000/evolution/evaluate/llm"
-payload = {
-    "strategy_id": "trend_following_gen5_12",
-    "strategy_type": "trend_following",
-    "parameters": {
-        "fast_period": 12,
-        "slow_period": 26,
-        "signal_period": 9,
-        "entry_threshold": 0.0002
-    },
-    "performance": {
-        "total_return": 15.7,
-        "sharpe_ratio": 1.2,
-        "max_drawdown": -12.5,
-        "win_rate": 0.58,
-        "trades": 120
-    }
-}
-
-response = requests.post(url, json=payload)
-print(json.dumps(response.json(), indent=2))
-```
-
-## System Requirements
-
-- Python 3.8+
-- FastAPI
-- OpenAI API key (for LLM evaluator)
-- Required packages in requirements.txt
-
-## Setup and Configuration
-
-1. Install dependencies: `pip install -r requirements.txt`
-2. Set API key: `export OPENAI_API_KEY=your_api_key`
-3. Start the system: `./launch_hardened.sh`
-
-## Development and Testing
-
-Use the `launch_hardened.sh` script for development. It sets up all components and provides comprehensive logging.
-
-For production deployment, use the Docker containers with `docker-compose up -d`. 

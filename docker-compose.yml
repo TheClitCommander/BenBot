@@ -1,93 +1,38 @@
 version: '3.8'
 
 services:
-  # FastAPI Backend
-  api:
+  backend:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: docker/Dockerfile.api
+    container_name: bensbot-api
     ports:
       - "8000:8000"
-    volumes:
-      - ./:/app
-      - ./logs:/app/logs
     environment:
+      - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - LOG_LEVEL=INFO
-    restart: unless-stopped
+    volumes:
+      - ./trading_bot:/app/trading_bot
+      - ./data:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 10s
 
-  # Backtester API
-  backtester:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    ports:
-      - "5002:5002"
-    volumes:
-      - ./:/app
-      - ./logs:/app/logs
-    environment:
-      - PYTHONPATH=/app
-      - LOG_LEVEL=INFO
-    command: python /app/backtester_api.py
-    restart: unless-stopped
-    depends_on:
-      - api
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-
-  # React Frontend
   frontend:
     build:
-      context: ..
-      dockerfile: Trading:BenBot/Dockerfile.frontend
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: bensbot-dashboard
     ports:
-      - "3003:80"
-    depends_on:
-      - api
-      - backtester
-    restart: unless-stopped
-    volumes:
-      - ./nginx/logs:/var/log/nginx
+      - "5173:80"
     environment:
-      - NODE_ENV=production
-      - VITE_API_URL=http://localhost:8000
-      - VITE_BACKTESTER_API_URL=http://localhost:5002
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-
-  # Nginx proxy for API gateway (optional but recommended for production)
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/conf:/etc/nginx/conf.d
-      - ./nginx/logs:/var/log/nginx
-      - ./nginx/certs:/etc/nginx/ssl
-      - ./nginx/www:/var/www/html
+      - VITE_API_BASE_URL=http://backend:8000
     depends_on:
-      - api
-      - backtester
-      - frontend
-    restart: unless-stopped
-    # Uncomment for production with HTTPS
-    # command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+      backend:
+        condition: service_healthy
 
 volumes:
   app-data:
@@ -95,4 +40,4 @@ volumes:
   
 networks:
   default:
-    name: trading-network
+    name: bensbot-network
