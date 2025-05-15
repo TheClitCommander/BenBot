@@ -9,22 +9,47 @@ import time
 
 app = FastAPI()
 
-# Configure CORS to allow all origins
+# Configure CORS with specific origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174", 
+        "http://localhost:5175",
+        "http://localhost:5176",
+        "http://localhost:5177",
+        "http://localhost:5178",
+        "http://192.168.1.87:5173",
+        "http://192.168.1.87:5174",
+        "http://192.168.1.87:5175",
+        "http://192.168.1.87:5176",
+        "http://192.168.1.87:5177",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+        "http://127.0.0.1:5176",
+        "http://127.0.0.1:5177",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Health check endpoint
+# Health check endpoint - both with and without /api prefix
 @app.get("/health")
+@app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "version": "1.0.0"}
 
+# Status endpoint with and without /api prefix
+@app.get("/api/status")
+@app.get("/status")
+async def status():
+    return {"status": "online", "version": "1.0.0"}
+    
 # System status endpoint
 @app.get("/system/status")
+@app.get("/api/system/status")
 async def system_status():
     return {
         "status": "online",
@@ -52,6 +77,8 @@ async def metrics_overview():
 
 # Strategies list
 @app.get("/orchestration/strategies")
+@app.get("/api/strategies")
+@app.get("/api/orchestration/strategies")
 async def get_strategies():
     strategies = [
         {
@@ -83,6 +110,8 @@ async def get_strategies():
 
 # Positions list
 @app.get("/execution/positions")
+@app.get("/api/positions")
+@app.get("/api/execution/positions")
 async def get_positions():
     positions = [
         {
@@ -110,6 +139,8 @@ async def get_positions():
 
 # Recent trades
 @app.get("/execution/trades")
+@app.get("/api/trades")
+@app.get("/api/execution/trades")
 async def get_trades():
     trades = [
         {
