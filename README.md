@@ -1,6 +1,173 @@
-# BensBot Trading System
+# BenBot Trading System
 
-A reactive trading system with FastAPI backend and React dashboard frontend.
+A modular trading system with a FastAPI backend and React dashboard frontend, focused on evolutionary trading strategies.
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.9+ 
+- Node.js 16+
+- Docker and Docker Compose (optional, for containerized setup)
+- Git
+
+### Installation - Local Development
+
+1. **Clone the repository**
+
+```bash
+git clone https://github.com/yourusername/benbot.git
+cd benbot
+```
+
+2. **Setup the environment**
+
+```bash
+# Make the setup script executable
+chmod +x scripts/setup_env.sh
+
+# Run the setup script
+./scripts/setup_env.sh
+```
+
+This script will:
+- Create a Python virtual environment
+- Install Python dependencies
+- Install Node.js dependencies for the frontend
+- Create template environment files
+
+3. **Configure environment variables**
+
+Edit the `.env` file in the root directory with your API keys and other configurations.
+Edit the `new-trading-dashboard/.env.local` file with frontend configurations.
+
+4. **Verify the environment**
+
+```bash
+# Make the verify script executable
+chmod +x scripts/verify_env.sh
+
+# Run the verification
+./scripts/verify_env.sh
+```
+
+### Installation - Docker Setup
+
+1. **Clone the repository**
+
+```bash
+git clone https://github.com/yourusername/benbot.git
+cd benbot
+```
+
+2. **Configure environment variables**
+
+Copy the example environment file and edit it with your API keys:
+
+```bash
+cp .env.example .env
+# Edit .env with your API keys and configurations
+```
+
+3. **Start the containers**
+
+```bash
+docker-compose up -d
+```
+
+## Running the Application
+
+### Local Development
+
+1. **Start the backend server**
+
+```bash
+# Activate the virtual environment
+source venv/bin/activate
+
+# Start the backend server
+python demo_backend.py
+```
+
+2. **Start the frontend development server**
+
+```bash
+cd new-trading-dashboard
+npm run dev
+```
+
+The frontend will be available at http://localhost:5173 (or another port if 5173 is in use).
+The API will be available at http://localhost:8000.
+
+### Docker Environment
+
+```bash
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop all services
+docker-compose down
+```
+
+The frontend will be available at http://localhost:80.
+The API will be available at http://localhost:8000.
+
+## Architecture
+
+- **Backend**: FastAPI application with endpoints for trading operations, strategy management, and market data
+- **Frontend**: React application with TypeScript, Vite, and modern UI libraries
+- **Brokers**: Supports Alpaca and Tradier integration
+
+## Available Scripts
+
+- `scripts/setup_env.sh` - Set up the development environment
+- `scripts/verify_env.sh` - Verify that the environment is properly configured
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Missing dependencies**
+
+If you encounter missing Python dependencies, run:
+```bash
+pip install -r requirements.txt
+```
+
+If you encounter missing Node.js dependencies, run:
+```bash
+cd new-trading-dashboard
+npm install
+npm install @tanstack/react-query-devtools @mui/icons-material
+```
+
+2. **Port conflicts**
+
+If you see "address already in use" errors, check for existing processes using the required ports:
+```bash
+# Check what's using port 8000 (backend)
+lsof -i :8000
+
+# Check what's using port 5173 (frontend)
+lsof -i :5173
+```
+
+3. **WebSocket connection issues**
+
+If the WebSocket connection fails with 400 errors, verify:
+- The WebSocket URL is correct in the frontend .env.local file
+- The backend server is properly configured for WebSocket connections
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Project Structure
 
@@ -177,4 +344,66 @@ url = f"http://localhost:8000/execution/strategies/{strategy_id}/activate"
 
 response = requests.post(url)
 print(response.json())
+```
+
+# BenBot Trading Dashboard
+
+A real-time trading dashboard that connects to Alpaca for live portfolio data.
+
+## Quick Start
+
+1. Get Alpaca API credentials:
+   - Sign up at [Alpaca](https://alpaca.markets/)
+   - Create a new API key in your Alpaca dashboard
+   - Copy your API key and secret
+
+2. Edit the `.env` file with your Alpaca credentials:
+   ```
+   ALPACA_API_KEY=your_api_key_here
+   ALPACA_API_SECRET=your_api_secret_here
+   ALPACA_BASE_URL=https://paper-api.alpaca.markets
+   ```
+
+3. Run the dashboard:
+   ```
+   chmod +x start_alpaca.sh
+   ./start_alpaca.sh
+   ```
+
+4. Access the dashboard in your browser:
+   - Frontend: http://localhost:5173 (or port shown in terminal)
+   - API: http://localhost:5001
+   - API Health Check: http://localhost:5001/health
+
+## Features
+
+- Real-time connection to Alpaca API
+- Live portfolio value and performance metrics
+- Position tracking with P&L calculations
+- Trade history
+- Strategy management
+
+## Paper Trading vs. Live Trading
+
+By default, the dashboard connects to Alpaca's paper trading API. To switch to live trading:
+
+1. Edit the `.env` file:
+   ```
+   ALPACA_BASE_URL=https://api.alpaca.markets
+   ```
+
+WARNING: Live trading involves real money. Use at your own risk.
+
+## Troubleshooting
+
+If you experience connection issues:
+
+1. Check that your Alpaca API credentials are correct
+2. Verify your internet connection
+3. Check that port 5001 is not being used by another application
+4. Look at the API server logs for error messages
+
+For debugging mode:
+```
+./launch_debug.sh
 ```

@@ -4,16 +4,22 @@ services:
   backend:
     build:
       context: .
-      dockerfile: docker/Dockerfile.api
-    container_name: bensbot-api
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     environment:
-      - PYTHONUNBUFFERED=1
-      - PYTHONPATH=/app
+      - API_PORT=8000
+      - API_HOST=0.0.0.0
+      - ALPACA_API_KEY=${ALPACA_API_KEY}
+      - ALPACA_API_SECRET=${ALPACA_API_SECRET}
+      - ALPACA_BASE_URL=${ALPACA_BASE_URL}
+      - TRADIER_API_KEY=${TRADIER_API_KEY}
+      - TRADIER_ACCOUNT_ID=${TRADIER_ACCOUNT_ID}
+      - TRADIER_BASE_URL=${TRADIER_BASE_URL}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     volumes:
-      - ./trading_bot:/app/trading_bot
-      - ./data:/app/data
+      - ./:/app
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -23,20 +29,40 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: docker/Dockerfile.frontend
-    container_name: bensbot-dashboard
+      context: ./new-trading-dashboard
+      dockerfile: Dockerfile
     ports:
-      - "5173:80"
-    environment:
-      - VITE_API_BASE_URL=http://backend:8000
+      - "80:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000/ws
+    restart: unless-stopped
+
+  # Uncomment this section if you need a database
+  # db:
+  #   image: postgres:15-alpine
+  #   environment:
+  #     - POSTGRES_USER=username
+  #     - POSTGRES_PASSWORD=password
+  #     - POSTGRES_DB=trading_bot
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   restart: unless-stopped
+
+# Uncomment this section if you need a database
+# volumes:
+#   postgres_data:
 
 volumes:
   app-data:
   logs:
+  postgres_data:
+    # Use a named volume for PostgreSQL data
+    name: bensbot-postgres-data
   
 networks:
   default:
