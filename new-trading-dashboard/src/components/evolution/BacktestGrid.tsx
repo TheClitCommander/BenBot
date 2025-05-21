@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Play, Download } from 'lucide-react';
-import evolutionApi, { GridConfig, GridResult } from '@/services/evolutionApi';
+import evolutionApi, { GridConfig, GridResult } from '../../services/evolutionApi';
 
 // Sample parameter setups for different strategy types
 const PARAMETER_TEMPLATES = {

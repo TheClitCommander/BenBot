@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import logging
 import time
+import random
+from datetime import datetime, timedelta
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -24,6 +26,9 @@ router = APIRouter(
     tags=["evolution"],
     responses={404: {"description": "Not found"}},
 )
+
+# Mock in-memory store for running backtest
+running_backtests = {}
 
 # Models for API requests/responses
 class EvolutionConfig(BaseModel):
@@ -65,6 +70,31 @@ class LLMImprovementRequest(BaseModel):
     parameters: Dict[str, Any] = Field(..., description="Current parameters")
     performance_history: List[Dict[str, Any]] = Field(..., description="List of historical performance data")
 
+class BacktestRequest(BaseModel):
+    """Request model for backtesting an evolutionary strategy."""
+    strategy_type: str
+    parameters: Dict[str, Any]
+    symbols: List[str]
+    start_date: str
+    end_date: str
+    timeframe: str = "1d"
+    initial_capital: float = 10000.0
+
+class StrategyOptimizationRequest(BaseModel):
+    """Request model for optimizing strategy parameters."""
+    strategy_type: str
+    parameter_ranges: Dict[str, Dict[str, Any]]
+    symbols: List[str]
+    start_date: str
+    end_date: str
+    timeframe: str = "1d"
+    initial_capital: float = 10000.0
+    generations: int = 10
+    population_size: int = 50
+    mutation_rate: float = 0.1
+    crossover_rate: float = 0.8
+    fitness_metric: str = "sharpe_ratio"  # or "total_return", "calmar_ratio", etc.
+
 # Create EvoTrader and BacktestGrid instances
 # We'll create these here so they can be imported by the main app
 from trading_bot.core.evolution import EvoTrader, BacktestGrid
@@ -78,7 +108,21 @@ llm_evaluator = None
 # Initialization function to be called by the main app
 def init_evolution_services(backtester=None):
     global evo_trader, backtest_grid, llm_evaluator
-    evo_trader = EvoTrader(backtester=backtester)
+    
+    # Create a backtester registry
+    backtester_registry = {}
+    if backtester:
+        # Using a generic 'default' key for the backtester
+        backtester_registry['default'] = backtester
+    
+    # Initialize with the registry instead of direct backtester
+    evo_trader = EvoTrader(
+        config_path="./config/evolution.json",
+        data_dir="./data/evolution",
+        backtester_registry=backtester_registry
+    )
+    
+    # BacktestGrid still uses direct backtester
     backtest_grid = BacktestGrid(backtester=backtester)
     
     # Initialize LLM evaluator
@@ -132,31 +176,43 @@ async def start_evolution(params: StrategyParameters, config: Optional[Evolution
         return {"success": False, "error": str(e)}
 
 @router.post("/backtest")
-async def run_backtest_generation(background_tasks: BackgroundTasks):
-    """Run backtests for the current generation."""
-    if not evo_trader:
-        return {"success": False, "error": "Evolution services not initialized"}
-    
+async def run_backtest(request: BacktestRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
+    """Run a backtest for a trading strategy."""
     try:
-        # Mock market data - in production, this would come from a data service
-        market_data = {"data_source": "mock", "timeframe": "1h", "start_date": "2023-01-01"}
+        # Generate a unique ID for this backtest
+        backtest_id = f"bt-{datetime.now().strftime('%Y%m%d%H%M%S')}-{random.randint(1000, 9999)}"
         
-        # This could be a long-running task, so we can run it in the background
-        def run_backtest():
-            try:
-                evo_trader.run_backtest_generation(market_data)
-            except Exception as e:
-                logger.error(f"Error in background backtest: {e}")
+        # In a real implementation, this would run a backtest using actual
+        # historical data and the specified strategy/parameters
+        logger.info(f"Starting backtest {backtest_id} with {request.strategy_type} strategy")
         
-        background_tasks.add_task(run_backtest)
+        # Add to running backtests
+        running_backtests[backtest_id] = {
+            "status": "running",
+            "progress": 0,
+            "request": request.dict(),
+            "start_time": datetime.now().isoformat()
+        }
+        
+        # Run backtest in background
+        background_tasks.add_task(simulate_backtest, backtest_id)
         
         return {
-            "success": True, 
-            "message": "Backtest started in background"
+            "backtest_id": backtest_id,
+            "status": "started",
+            "message": f"Backtest for {request.strategy_type} on {', '.join(request.symbols)} started"
         }
     except Exception as e:
-        logger.error(f"Error running backtest: {e}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"Error starting backtest: {e}")
+        raise HTTPException(status_code=500, detail=f"Error starting backtest: {str(e)}")
+
+@router.get("/backtest/{backtest_id}")
+async def get_backtest_status(backtest_id: str) -> Dict[str, Any]:
+    """Get the status of a running or completed backtest."""
+    if backtest_id not in running_backtests:
+        raise HTTPException(status_code=404, detail=f"Backtest {backtest_id} not found")
+    
+    return running_backtests[backtest_id]
 
 @router.post("/evolve")
 async def evolve_generation():
@@ -374,4 +430,101 @@ async def get_improvement_recommendations(request: LLMImprovementRequest):
         return {"success": True, "data": recommendations}
     except Exception as e:
         logger.error(f"Error getting improvement recommendations: {e}")
-        return {"success": False, "error": str(e)} 
+        return {"success": False, "error": str(e)}
+
+@router.post("/optimize")
+async def optimize_strategy(request: StrategyOptimizationRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
+    """Run a genetic algorithm to optimize strategy parameters."""
+    try:
+        # Generate a unique ID for this optimization
+        optimization_id = f"opt-{datetime.now().strftime('%Y%m%d%H%M%S')}-{random.randint(1000, 9999)}"
+        
+        # In a real implementation, this would run a genetic algorithm to optimize 
+        # strategy parameters based on historical performance
+        logger.info(f"Starting optimization {optimization_id} for {request.strategy_type} strategy")
+        
+        # Add to running backtests with optimization flag
+        running_backtests[optimization_id] = {
+            "status": "running",
+            "progress": 0,
+            "is_optimization": True,
+            "request": request.dict(),
+            "start_time": datetime.now().isoformat()
+        }
+        
+        # Run optimization in background
+        background_tasks.add_task(simulate_optimization, optimization_id)
+        
+        return {
+            "optimization_id": optimization_id,
+            "status": "started",
+            "message": f"Optimization for {request.strategy_type} started"
+        }
+    except Exception as e:
+        logger.error(f"Error starting optimization: {e}")
+        raise HTTPException(status_code=500, detail=f"Error starting optimization: {str(e)}")
+
+# Internal simulation functions
+async def simulate_backtest(backtest_id: str):
+    """Simulate a backtest running in the background."""
+    import asyncio
+    import random
+    
+    # Simulate progress
+    for progress in range(0, 101, 10):
+        running_backtests[backtest_id]["progress"] = progress
+        await asyncio.sleep(0.5)  # Simulate work
+    
+    # Generate mock results
+    running_backtests[backtest_id] = {
+        **running_backtests[backtest_id],
+        "status": "completed",
+        "progress": 100,
+        "end_time": datetime.now().isoformat(),
+        "results": {
+            "total_return": round(random.uniform(-10, 40), 2),
+            "sharpe_ratio": round(random.uniform(0.5, 3.0), 2),
+            "max_drawdown": round(random.uniform(-30, -5), 2),
+            "win_rate": round(random.uniform(40, 80), 2),
+            "trades": random.randint(20, 200),
+            "equity_curve": [10000 * (1 + random.uniform(-0.01, 0.02)) for _ in range(100)]
+        }
+    }
+
+async def simulate_optimization(optimization_id: str):
+    """Simulate a strategy optimization running in the background."""
+    import asyncio
+    import random
+    
+    # Simulate progress
+    for progress in range(0, 101, 5):
+        running_backtests[optimization_id]["progress"] = progress
+        
+        # Add more detailed status updates for optimization
+        if progress % 20 == 0:
+            running_backtests[optimization_id]["current_generation"] = progress // 5
+            running_backtests[optimization_id]["best_fitness"] = round(0.5 + progress/100, 2)
+        
+        await asyncio.sleep(1)  # Optimization is slower
+    
+    # Generate mock optimization results
+    running_backtests[optimization_id] = {
+        **running_backtests[optimization_id],
+        "status": "completed",
+        "progress": 100,
+        "end_time": datetime.now().isoformat(),
+        "results": {
+            "best_parameters": {
+                "lookback_period": random.randint(10, 40),
+                "entry_threshold": round(random.uniform(0.5, 2.5), 2),
+                "exit_threshold": round(random.uniform(0.2, 1.0), 2),
+                "stop_loss": round(random.uniform(1.0, 5.0), 2),
+                "take_profit": round(random.uniform(2.0, 10.0), 2),
+            },
+            "best_fitness": round(random.uniform(1.5, 4.0), 2),
+            "generations": random.randint(8, 15),
+            "population_size": random.randint(40, 60),
+            "convergence_generation": random.randint(5, 12),
+            "optimization_metric": "sharpe_ratio"
+        }
+    } 

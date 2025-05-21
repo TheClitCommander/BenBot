@@ -1,0 +1,12 @@
+{
+  "population_size": 50,
+  "generations": 20,
+  "mutation_rate": 0.2,
+  "crossover_rate": 0.7,
+  "elite_size": 5,
+  "selection_method": "tournament",
+  "tournament_size": 5,
+  "auto_promotion_threshold": 0.2,
+  "use_parallel_backtesting": true,
+  "max_parallel_workers": 0
+}

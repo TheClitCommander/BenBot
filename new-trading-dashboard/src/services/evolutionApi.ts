@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Base API URL
-const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Strategy interface
 export interface Strategy {

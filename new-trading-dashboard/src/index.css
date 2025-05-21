@@ -4,35 +4,40 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --background: 0 0% 98%;
+    --foreground: 0 0% 20%;
 
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 0 0% 20%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
+    --popover-foreground: 0 0% 20%;
 
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 20%;
 
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
 
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 10% 3.9%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 80%;
 
     --radius: 0.5rem;
+
+    --positive: 142 76% 36%;
+    --negative: 0 79% 63%;
+    --neutral: 217 91% 60%;
+    --warning: 38 92% 50%;
   }
 
   .dark {
@@ -71,7 +76,97 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+  }
+}
+
+@layer components {
+  .status-item {
+    @apply flex items-center gap-2 whitespace-nowrap;
+  }
+  
+  .metric-card {
+    @apply bg-white rounded-lg p-5 shadow-sm;
+  }
+  
+  .metric-card.portfolio {
+    @apply border-l-4 border-blue-500;
+  }
+  
+  .metric-card.positions {
+    @apply border-l-4 border-green-500;
+  }
+  
+  .metric-card.strategies {
+    @apply border-l-4 border-yellow-500;
+  }
+  
+  .metric-card.pnl {
+    @apply border-l-4 border-purple-500;
+  }
+  
+  .metric-value {
+    @apply text-2xl font-bold my-2;
+  }
+  
+  .positive {
+    @apply text-green-600;
+  }
+  
+  .negative {
+    @apply text-red-600;
+  }
+  
+  .neutral {
+    @apply text-blue-600;
+  }
+  
+  .badge {
+    @apply inline-block py-1 px-2 rounded text-xs font-bold;
+  }
+  
+  .badge-green {
+    @apply bg-green-100 text-green-700;
+  }
+  
+  .badge-red {
+    @apply bg-red-100 text-red-700;
+  }
+  
+  .badge-yellow {
+    @apply bg-yellow-100 text-yellow-700;
+  }
+  
+  .badge-blue {
+    @apply bg-blue-100 text-blue-700;
+  }
+  
+  .action-button {
+    @apply bg-blue-500 text-white border-none py-2 px-4 rounded font-bold hover:bg-blue-600 transition-colors;
+  }
+  
+  .secondary-button {
+    @apply bg-gray-100 text-gray-800 border border-gray-300 py-2 px-4 rounded font-bold hover:bg-gray-200 transition-colors;
+  }
+  
+  .chart-container {
+    @apply h-72 mb-5;
+  }
+  
+  .progress {
+    @apply h-2 bg-gray-200 rounded overflow-hidden mt-1 w-20;
+  }
+  
+  .progress-bar {
+    @apply h-full bg-blue-500;
+  }
+  
+  .progress-bar.warning {
+    @apply bg-yellow-500;
+  }
+  
+  .progress-bar.danger {
+    @apply bg-red-500;
   }
 }
 

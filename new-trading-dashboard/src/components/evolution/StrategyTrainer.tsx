@@ -1,7 +1,41 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Play, FastForward, Award, BarChart } from 'lucide-react';
-import evolutionApi, { ParameterSpace } from '@/services/evolutionApi';
+import evolutionApi, { ParameterSpace } from '../../services/evolutionApi';
+
+// Mock data
+const mockStatus = {
+  current_generation: 3,
+  population_size: 50,
+  historical_generations: 2,
+  best_strategies_count: 5,
+  top_performer: {
+    id: 'strat-1234',
+    name: 'Mean Reversion v2.3',
+    type: 'mean_reversion',
+    parameters: {
+      lookback_period: 20,
+      entry_threshold: 2.0,
+      exit_threshold: 0.5,
+      stop_loss: 3.5
+    },
+    performance: {
+      total_return: 87.4,
+      sharpe_ratio: 1.82,
+      max_drawdown: 15.2,
+      win_rate: 58.3
+    },
+    generation: 3,
+    parent_ids: ['strat-1122', 'strat-1123'],
+    creation_date: '2024-05-01T10:30:00Z'
+  },
+  config: {
+    generations: 5,
+    population_size: 50,
+    mutation_rate: 0.1,
+    crossover_rate: 0.7
+  }
+};
 
 // Sample strategy types and their parameter spaces
 const STRATEGY_TEMPLATES = {
@@ -33,6 +67,9 @@ const STRATEGY_TEMPLATES = {
 const StrategyTrainer: React.FC = () => {
   const queryClient = useQueryClient();
   
+  // Use mock data in development
+  const useMockData = true;
+  
   // State for strategy configuration
   const [selectedType, setSelectedType] = useState<string>('mean_reversion');
   const [parameters, setParameters] = useState<Record<string, any>>(STRATEGY_TEMPLATES.mean_reversion);
@@ -40,18 +77,21 @@ const StrategyTrainer: React.FC = () => {
   const [generations, setGenerations] = useState<number>(20);
   const [mutationRate, setMutationRate] = useState<number>(0.2);
   
-  // Fetch current evolution status
+  // Get evolution status
   const { data: statusData, isLoading: isStatusLoading } = useQuery({
     queryKey: ['evolutionStatus'],
     queryFn: () => evolutionApi.getStatus(),
-    refetchInterval: 5000
+    refetchInterval: 5000,
+    enabled: !useMockData
   });
+  
+  const status = useMockData ? mockStatus : (statusData?.success ? statusData.data : null);
   
   // Current generation strategies
   const { data: strategiesData, isLoading: isStrategiesLoading } = useQuery({
     queryKey: ['strategies'],
     queryFn: () => evolutionApi.getStrategies(),
-    enabled: statusData?.success && statusData.data?.population_size > 0,
+    enabled: !!statusData?.success && !!statusData?.data?.population_size,
     refetchInterval: 5000
   });
   
@@ -113,9 +153,19 @@ const StrategyTrainer: React.FC = () => {
     startEvolutionMutation.mutate(parameterSpace);
   };
   
+  // Handle run backtest
+  const handleRunBacktest = () => {
+    runBacktestMutation.mutate();
+  };
+  
+  // Handle evolve generation
+  const handleEvolveGeneration = () => {
+    evolveGenerationMutation.mutate();
+  };
+  
   // Status card
   const renderStatusCard = () => {
-    if (isStatusLoading || !statusData?.success) {
+    if (isStatusLoading || !statusData?.success || !statusData?.data) {
       return (
         <div className="bg-card border border-border rounded-lg p-4 mb-4">
           <h3 className="font-medium mb-2">Evolution Status</h3>
@@ -124,7 +174,7 @@ const StrategyTrainer: React.FC = () => {
       );
     }
     
-    const { current_generation, population_size, best_strategies_count } = statusData.data;
+    const { current_generation = 0, population_size = 0, best_strategies_count = 0 } = statusData.data;
     
     return (
       <div className="bg-card border border-border rounded-lg p-4 mb-4">
@@ -154,7 +204,7 @@ const StrategyTrainer: React.FC = () => {
       runBacktestMutation.isPending || 
       evolveGenerationMutation.isPending;
     
-    const hasPopulation = statusData?.success && statusData.data?.population_size > 0;
+    const hasPopulation = statusData?.success && !!statusData?.data?.population_size;
     
     return (
       <div className="bg-card border border-border rounded-lg p-4 mb-4">
@@ -173,7 +223,7 @@ const StrategyTrainer: React.FC = () => {
           
           <button
             className="flex items-center px-4 py-2 bg-secondary text-secondary-foreground rounded-md font-medium disabled:opacity-50"
-            onClick={() => runBacktestMutation.mutate()}
+            onClick={handleRunBacktest}
             disabled={isRunning || !hasPopulation}
           >
             <BarChart size={16} className="mr-2" />
@@ -182,7 +232,7 @@ const StrategyTrainer: React.FC = () => {
           
           <button
             className="flex items-center px-4 py-2 bg-secondary text-secondary-foreground rounded-md font-medium disabled:opacity-50"
-            onClick={() => evolveGenerationMutation.mutate()}
+            onClick={handleEvolveGeneration}
             disabled={isRunning || !hasPopulation}
           >
             <FastForward size={16} className="mr-2" />
@@ -380,13 +430,13 @@ const StrategyTrainer: React.FC = () => {
                   <td className="p-2 font-mono text-xs">{strategy.id.split('_').pop()}</td>
                   <td className="p-2">{strategy.name}</td>
                   <td className="p-2 text-right">
-                    <span className={strategy.performance?.total_return >= 0 ? 'text-bull' : 'text-bear'}>
-                      {strategy.performance?.total_return?.toFixed(2)}%
+                    <span className={strategy.performance?.total_return && strategy.performance.total_return >= 0 ? 'text-bull' : 'text-bear'}>
+                      {strategy.performance?.total_return?.toFixed(2) || '0.00'}%
                     </span>
                   </td>
-                  <td className="p-2 text-right">{strategy.performance?.sharpe_ratio?.toFixed(2)}</td>
-                  <td className="p-2 text-right">{strategy.performance?.max_drawdown?.toFixed(2)}%</td>
-                  <td className="p-2 text-right">{strategy.performance?.win_rate?.toFixed(2)}%</td>
+                  <td className="p-2 text-right">{strategy.performance?.sharpe_ratio?.toFixed(2) || '0.00'}</td>
+                  <td className="p-2 text-right">{strategy.performance?.max_drawdown?.toFixed(2) || '0.00'}%</td>
+                  <td className="p-2 text-right">{strategy.performance?.win_rate?.toFixed(2) || '0.00'}%</td>
                 </tr>
               ))}
             </tbody>

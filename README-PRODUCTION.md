@@ -1,186 +1,156 @@
-# BensBot Trading System - Production Guide
+# BensBot Trading - Production Features
 
-This guide provides instructions for deploying and managing the BensBot trading system in a production environment.
+This document outlines the production-ready features implemented in the BensBot Trading platform to ensure reliable, efficient, and safe operation in a production environment.
 
-## System Overview
+## Production Readiness Features
 
-BensBot is a sophisticated multi-asset trading system with:
+### 1. API Reliability
 
-- AI-driven trading strategies (via GPT and evolutionary algorithms)
-- Dynamic capital allocation
-- Comprehensive risk management
-- Live system monitoring
-- Multiple data sources and execution adapters
-- Cloud backup and recovery
+#### Circuit Breaker Pattern
+- Prevents cascading failures when the Alpaca API is experiencing issues
+- Automatically suspends API calls after multiple failures
+- Half-open state to test if the API has recovered
+- Manual reset capability via admin endpoint
 
-## Quick Start
+#### Exponential Backoff Retries
+- Automatic retry for transient failures
+- Configurable retry count and initial backoff time
+- Progressive backoff to avoid overwhelming external services
 
-For a quick deployment without AWS:
+#### Request Caching
+- Price data is cached for 15 seconds to reduce API calls
+- Cache is thread-safe and automatically expires
+
+### 2. Error Handling & Logging
+
+#### Enhanced Error Logging
+- Comprehensive error details in development
+- Sanitized error messages in production
+- Unique error IDs to track issues across logs
+- Structured logging with proper severity levels
+
+#### Request Tracing
+- Request IDs for tracking requests through the system
+- Performance metrics for each request
+- Slow request identification and logging
+
+### 3. Monitoring & Metrics
+
+#### Performance Monitoring
+- Request latency tracking by endpoint
+- Identification of slow requests and very slow requests
+- Performance metrics available via API
+
+#### Health Metrics
+- Overall system health status
+- API connection health metrics
+- Success/failure rates and latency statistics
+- Circuit breaker state monitoring
+
+#### Metrics Endpoints
+- `/metrics` for general API metrics
+- `/metrics/live-data` for Alpaca-specific metrics
+- `/metrics/alpaca` for detailed Alpaca API usage
+
+### 4. Rate Limiting
+
+#### Endpoint-Specific Rate Limits
+- Different limits for different endpoint types
+- Client IP-based rate limiting
+- Configurable rate limit windows
+
+#### Rate Limit Monitoring
+- Track rate limit usage and patterns
+- Alert on excessive rate limit hits
+
+### 5. Safety Controls
+
+#### Trading Safeguards
+- Environment-specific safety controls (dev/prod)
+- Maximum order value limits
+- Paper trading mode for testing
+- Multiple validation layers for orders
+
+#### Production Security
+- Restricted Swagger UI in production
+- Configurable CORS origins
+- Admin-only access for sensitive operations
+- Detailed audit logging
+
+### 6. End-to-End Testing
+
+#### API Integration Tests
+- Comprehensive test suite for all endpoints
+- Tests for error paths and edge cases
+- Rate limit testing
+- Circuit breaker functionality testing
+
+## Environment Setup
+
+### Production Environment Variables
+Configure the production environment by editing `.env.production`:
+
+```
+# Core settings
+ENVIRONMENT=production
+LOG_LEVEL=INFO
+ENABLE_PERFORMANCE_MONITORING=true
+
+# Safety settings
+ENABLE_LIVE_TRADING=false
+MAX_ORDER_VALUE_USD=1000
+
+# Alpaca API settings
+ALPACA_API_KEY=your_api_key
+ALPACA_SECRET_KEY=your_secret_key
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+```
+
+### Production Setup
+Use the included setup script to prepare your environment:
 
 ```bash
-# Set up local environment
-./scripts/setup_local_env.sh
-
-# Set up local backup
-./scripts/setup_local_backup.sh
-
-# Deploy the system
-./scripts/deploy_live.sh
+./setup_production.sh
 ```
 
-## Detailed Setup Process
-
-### 1. Configure Environment
-
-First, create and configure your production environment file:
+### Starting in Production Mode
+Start the application in production mode:
 
 ```bash
-# Set up the environment with local paths
-./scripts/setup_local_env.sh
+./start_production.sh
 ```
 
-This script will:
-- Create a `.env.production` file from the template
-- Configure paths for local development
-- Disable cloud sync (until AWS credentials are available)
-- Create necessary directories
-- Set up monitoring configuration
+## Monitoring & Management
 
-Edit the `.env.production` file to add your API credentials:
-```bash
-nano config/.env.production
-```
+### Important Endpoints
 
-### 2. Configure Backup System
+| Endpoint | Purpose |
+|----------|---------|
+| `/health` | Basic health check |
+| `/live/health` | Alpaca connection status |
+| `/live/service-health` | Detailed Alpaca service metrics |
+| `/metrics` | General API metrics |
+| `/metrics/live-data` | Live data endpoint metrics |
+| `/metrics/alpaca` | Alpaca API usage metrics |
+| `/live/reset-circuit-breaker` | Reset circuit breaker (admin) |
 
-Set up the backup system for regular data and strategy backups:
+### Circuit Breaker Management
 
-```bash
-# Set up local backup directories and schedule
-./scripts/setup_local_backup.sh
-```
+If the circuit breaker opens due to Alpaca API issues:
 
-This will:
-- Create local backup directories
-- Configure backup retention policies
-- Set up crontab entries for scheduled backups
+1. Check `/live/service-health` for current status
+2. Resolve any underlying API issues
+3. Use the admin token to reset: `curl -X POST -H "X-Admin-Token: your_token" http://localhost:8000/live/reset-circuit-breaker`
 
-### 3. Deploy the System
+## Pre-Deployment Checklist
 
-Deploy the system to a clean production environment:
+Before deploying to production, review the `production_checklist.md` file which includes:
 
-```bash
-# Deploy the system
-./scripts/deploy_live.sh
-```
+- Configuration verification steps
+- Going-live procedure
+- Safety checks
+- Monitoring setup requirements
 
-The deployment script will:
-- Check system requirements
-- Create a backup of the current state
-- Create a clean deployment directory
-- Install dependencies
-- Configure the system
-- Create startup scripts
+## Support & Troubleshooting
 
-### 4. Start the System
-
-After deployment, you can start the system:
-
-```bash
-cd deployment
-./start_trading.sh
-```
-
-## Directory Structure
-
-```
-deployment/               # Production deployment directory
-├── config/               # Configuration files
-│   ├── .env.production   # Production environment variables
-│   ├── deployment.json   # Deployment configuration
-│   └── health_monitor.json # Health monitoring configuration
-├── data/                 # Trading data
-│   ├── strategies/       # Trading strategies
-│   ├── performance/      # Performance records
-│   └── history/          # Historical data
-├── logs/                 # Log files
-├── scripts/              # Utility scripts
-├── trading_bot/          # Trading system code
-├── venv/                 # Python virtual environment
-└── start_trading.sh      # Startup script
-```
-
-## Cloud Backup Integration
-
-When your AWS account is verified, update your `.env.production` file:
-
-```
-ENABLE_CLOUD_SYNC=true
-CLOUD_SYNC_PROVIDER=s3
-AWS_ACCESS_KEY_ID=your_verified_key
-AWS_SECRET_ACCESS_KEY=your_verified_secret
-AWS_S3_BUCKET=your-bensbot-bucket
-AWS_REGION=us-east-1
-```
-
-Then run a manual backup to test cloud integration:
-
-```bash
-./scripts/backup.sh --cloud-sync --aws-bucket your-bensbot-bucket
-```
-
-## Monitoring and Maintenance
-
-### Health Monitoring
-
-The system health monitor runs automatically and provides:
-- Data feed latency monitoring
-- Strategy execution performance
-- System resource usage
-- Alert generation
-
-Health reports are stored in:
-```
-data/health_monitor/reports/
-```
-
-### Regular Maintenance
-
-1. **Daily**: Review health reports and alerts
-2. **Weekly**: Perform full backups and strategy performance reviews
-3. **Monthly**: Optimize system parameters and risk settings
-
-### Going Live
-
-Before switching from paper to live trading:
-
-1. Run at least 1 week in paper mode to validate performance
-2. Review all strategies and allocation decisions
-3. Check guard rails and safety mechanisms
-4. Update environment to enable live trading:
-   ```
-   TRADE_MODE=live
-   ```
-5. Restart the system with live trading enabled
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Data feed connectivity issues**:
-   - Check API credentials in .env.production
-   - Verify network connectivity
-   - Check data feed latency in health reports
-
-2. **Strategy performance issues**:
-   - Review strategy logs in logs/strategies/
-   - Check allocator decisions in logs/system/
-   - Review Monte Carlo simulation results
-
-3. **System resource limitations**:
-   - Check system health reports for memory/CPU usage
-   - Consider upgrading hardware if consistently at limits
-
-### Support
-
-For additional support or questions about the system, refer to the internal documentation or contact the development team. 
+For issues or questions, please refer to the troubleshooting documentation or contact the development team. 

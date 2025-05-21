@@ -1,17 +1,86 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Award, ArrowUp, ArrowDown, ChevronDown, ChevronUp } from 'lucide-react';
-import evolutionApi, { Strategy } from '@/services/evolutionApi';
+import evolutionApi from '../../services/evolutionApi';
+
+// Mock data for development
+const mockStrategies = [
+  {
+    id: 'strat-1234',
+    name: 'Mean Reversion v2.3',
+    type: 'mean_reversion',
+    parameters: {
+      lookback_period: 20,
+      entry_threshold: 2.0,
+      exit_threshold: 0.5,
+      stop_loss: 3.5
+    },
+    performance: {
+      total_return: 87.4,
+      sharpe_ratio: 1.82,
+      max_drawdown: 15.2,
+      win_rate: 58.3
+    },
+    generation: 5,
+    parent_ids: ['strat-1122', 'strat-1123'],
+    creation_date: '2024-05-01T10:30:00Z'
+  },
+  {
+    id: 'strat-1235',
+    name: 'Trend Follower Alpha',
+    type: 'trend_following',
+    parameters: {
+      fast_period: 10,
+      slow_period: 50,
+      signal_period: 9,
+      entry_strength: 0.2
+    },
+    performance: {
+      total_return: 122.1,
+      sharpe_ratio: 2.15,
+      max_drawdown: 18.7,
+      win_rate: 51.2
+    },
+    generation: 4,
+    parent_ids: ['strat-1120'],
+    creation_date: '2024-04-28T14:45:00Z'
+  },
+  {
+    id: 'strat-1236',
+    name: 'Breakout Hunter',
+    type: 'breakout',
+    parameters: {
+      channel_period: 20,
+      volatility_factor: 2.0,
+      confirmation_bars: 2
+    },
+    performance: {
+      total_return: 96.8,
+      sharpe_ratio: 1.95,
+      max_drawdown: 12.5,
+      win_rate: 45.8
+    },
+    generation: 3,
+    parent_ids: [],
+    creation_date: '2024-04-25T09:15:00Z'
+  }
+];
 
 const BestStrategies: React.FC = () => {
   const [expandedStrategy, setExpandedStrategy] = useState<string | null>(null);
   
+  // Use mock data in development, real API in production
+  const useMockData = true;
+  
   // Fetch best strategies
-  const { data: strategiesData, isLoading } = useQuery({
+  const { data: strategiesData, isLoading: isStrategiesLoading } = useQuery({
     queryKey: ['bestStrategies'],
-    queryFn: () => evolutionApi.getBestStrategies(20),
-    refetchInterval: 30000
+    queryFn: () => evolutionApi.getBestStrategies(10),
+    refetchInterval: 30000,
+    enabled: !useMockData
   });
+  
+  const strategies = useMockData ? mockStrategies : (strategiesData?.success ? strategiesData.data : []);
   
   // Toggle expanded strategy
   const toggleStrategy = (id: string) => {
@@ -61,26 +130,10 @@ const BestStrategies: React.FC = () => {
     return groups;
   };
   
-  if (isLoading) {
+  if (isStrategiesLoading && !useMockData) {
     return (
-      <div className="bg-card border border-border rounded-lg p-4">
-        <div className="flex items-center mb-4">
-          <Award className="mr-2 text-primary" size={20} />
-          <h2 className="text-xl font-semibold">Best Strategies</h2>
-        </div>
-        <p className="text-muted-foreground">Loading strategies...</p>
-      </div>
-    );
-  }
-  
-  if (!strategiesData?.success || !strategiesData.data?.length) {
-    return (
-      <div className="bg-card border border-border rounded-lg p-4">
-        <div className="flex items-center mb-4">
-          <Award className="mr-2 text-primary" size={20} />
-          <h2 className="text-xl font-semibold">Best Strategies</h2>
-        </div>
-        <p className="text-muted-foreground">No strategies found. Train some strategies to see them here.</p>
+      <div className="p-4 text-center">
+        <div className="animate-pulse">Loading best strategies...</div>
       </div>
     );
   }

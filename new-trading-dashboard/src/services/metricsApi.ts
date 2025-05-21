@@ -1,154 +1,77 @@
 import axios, { AxiosRequestConfig } from 'axios';
 
-// API base URL
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// Base API URL - ensure this matches your environment configuration
+const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// Setup Axios instance
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-});
+// Use mock data for development
+const USE_MOCK_DATA = false;
 
-// Interface for API Response
-interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
-
-// Equity point interface
-export interface EquityPoint {
-  timestamp: string;
-  equity: number;
-  daily_pnl: number;
-  total_pnl: number;
-}
-
-// Position interface
-export interface Position {
-  id: string;
-  symbol: string;
-  side: string;
-  quantity: number;
-  entryPrice: number;
-  currentPrice: number;
-  pnl: number;
-  pnlPercent: number;
-  openTime: string;
-  strategy: string;
-}
-
-// Signal interface
-export interface Signal {
-  id: string;
-  symbol: string;
-  type: string;
-  source: string;
-  confidence: number;
-  price: number;
-  timestamp: string;
-  executed: boolean;
-  reason?: string;
-}
-
-// Performance summary interface
-export interface PerformanceSummary {
-  starting_equity: number;
-  current_equity: number;
-  total_pnl: number;
-  total_pnl_percent: number;
-  open_positions_count: number;
-  total_trade_count: number;
-  winning_trades?: number;
-  losing_trades?: number;
-  win_rate?: number;
-  avg_daily_change_percent?: number;
-  max_daily_gain_percent?: number;
-  max_daily_loss_percent?: number;
-}
-
-// Generic API request handler
-async function apiRequest<T>(config: AxiosRequestConfig): Promise<ApiResponse<T>> {
-  try {
-    const response = await api(config);
-    return response.data as ApiResponse<T>;
-  } catch (error: any) {
-    return { 
-      success: false, 
-      error: error.response?.data?.detail || error.message || 'Unknown error' 
+// Mock metrics data
+const mockPerformanceMetrics = {
+  equityCurve: Array.from({ length: 24 }, (_, i) => {
+    const baseValue = 10000;
+    const randomChange = (Math.random() - 0.3) * 200; // Bias towards positive returns
+    const timestamp = new Date(Date.now() - (23 - i) * 3600 * 1000).toISOString();
+    return {
+      timestamp,
+      value: baseValue + randomChange * (i + 1) // Gradually increase over time with some volatility
     };
-  }
+  }),
+  dailyReturns: [
+    { date: '2023-07-01', return_percent: 1.2 },
+    { date: '2023-07-02', return_percent: -0.3 },
+    { date: '2023-07-03', return_percent: 0.8 },
+    { date: '2023-07-04', return_percent: 2.1 },
+    { date: '2023-07-05', return_percent: -0.5 }
+  ],
+  totalReturn: 4.7,
+  drawdown: -2.3,
+  sharpeRatio: 1.8
+};
+
+interface MetricsApiService {
+  getPerformanceMetrics: () => Promise<typeof mockPerformanceMetrics>;
+  getDailyReturns: (days?: number) => Promise<{ date: string; return_percent: number }[]>;
 }
 
-// Metrics API endpoints
-const metricsApi = {
-  // Get equity curve data
-  getEquityCurve: async (
-    timeframe: string = '1m',
-    startTime?: string,
-    endTime?: string
-  ): Promise<ApiResponse<EquityPoint[]>> => {
-    let params: any = { timeframe };
-    if (startTime) params.start_time = startTime;
-    if (endTime) params.end_time = endTime;
-    
-    return apiRequest<EquityPoint[]>({
-      method: 'GET',
-      url: '/metrics/equity-curve',
-      params
-    });
+// Implement the API service
+const metricsApi: MetricsApiService = {
+  /**
+   * Get performance metrics including equity curve
+   */
+  getPerformanceMetrics: async () => {
+    if (USE_MOCK_DATA) {
+      return new Promise((resolve) => {
+        setTimeout(() => resolve(mockPerformanceMetrics), 500);
+      });
+    }
+
+    try {
+      const response = await axios.get(`${apiBaseUrl}/metrics/performance`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching performance metrics:', error);
+      throw error;
+    }
   },
 
-  // Get all current positions
-  getPositions: async (): Promise<ApiResponse<Position[]>> => {
-    return apiRequest<Position[]>({
-      method: 'GET',
-      url: '/metrics/positions'
-    });
-  },
+  /**
+   * Get daily returns for a specified number of days
+   */
+  getDailyReturns: async (days = 30) => {
+    if (USE_MOCK_DATA) {
+      return new Promise((resolve) => {
+        setTimeout(() => resolve(mockPerformanceMetrics.dailyReturns), 500);
+      });
+    }
 
-  // Get a specific position by ID
-  getPosition: async (positionId: string): Promise<ApiResponse<Position>> => {
-    return apiRequest<Position>({
-      method: 'GET',
-      url: `/metrics/position/${positionId}`
-    });
-  },
-
-  // Get trading signals
-  getSignals: async (
-    limit: number = 50,
-    signalType?: string,
-    executed?: boolean
-  ): Promise<ApiResponse<Signal[]>> => {
-    let params: any = { limit };
-    if (signalType) params.signal_type = signalType;
-    if (executed !== undefined) params.executed = executed;
-    
-    return apiRequest<Signal[]>({
-      method: 'GET',
-      url: '/metrics/signals',
-      params
-    });
-  },
-
-  // Get performance summary
-  getPerformanceSummary: async (): Promise<ApiResponse<PerformanceSummary>> => {
-    return apiRequest<PerformanceSummary>({
-      method: 'GET',
-      url: '/metrics/summary'
-    });
-  },
-
-  // Generate mock data (development only)
-  generateMockData: async (days: number = 30): Promise<ApiResponse<any>> => {
-    return apiRequest<any>({
-      method: 'POST',
-      url: '/metrics/generate-mock-data',
-      params: { days }
-    });
+    try {
+      const response = await axios.get(`${apiBaseUrl}/metrics/returns/daily?days=${days}`);
+      return response.data.returns;
+    } catch (error) {
+      console.error('Error fetching daily returns:', error);
+      throw error;
+    }
   }
 };
 

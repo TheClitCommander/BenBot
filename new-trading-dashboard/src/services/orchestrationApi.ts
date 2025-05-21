@@ -1,7 +1,43 @@
 import axios from 'axios';
 
 // Base API URL - ensure this matches your environment configuration
-const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+// Use mock data for development
+const USE_MOCK_DATA = false;
+
+// Mock strategy data
+const mockStrategies = {
+  strategies: [
+    {
+      id: 'strat-btc-trend-1',
+      name: 'BTC Trend Following',
+      status: 'active',
+      market: 'BTCUSDT',
+      pnl_today: 1.5,
+      pnl_total: 12.8,
+      last_trade_time: new Date(Date.now() - 2200000).toISOString()
+    },
+    {
+      id: 'strat-eth-reversion-1',
+      name: 'ETH Mean Reversion',
+      status: 'active',
+      market: 'ETHUSDT',
+      pnl_today: -0.8,
+      pnl_total: 5.2,
+      last_trade_time: new Date(Date.now() - 5400000).toISOString()
+    },
+    {
+      id: 'strat-alt-momentum-1',
+      name: 'Altcoin Momentum',
+      status: 'paused',
+      market: 'Multi',
+      pnl_today: 0.0,
+      pnl_total: 7.9,
+      last_trade_time: new Date(Date.now() - 86400000).toISOString()
+    }
+  ]
+};
 
 // --- TypeScript Interfaces based on Pydantic Models ---
 
@@ -98,18 +134,20 @@ export interface ScheduleEvolutionPayload {
   elite_size?: number;
 }
 
-// Type for the orchestrator API service
-interface OrchestratorApiService {
+// Define the orchestration API service interface
+interface OrchestrationApiService {
   getSystemOverview: () => Promise<SystemOverviewResponse>;
   scheduleEvolutionRun: (payload: ScheduleEvolutionPayload) => Promise<OrchestrationApiResponse<{schedule_id: string}>>;
   getEvolutionStatus: () => Promise<OrchestrationApiResponse<{evo_trader_status: any, scheduled_runs_summary: any}>>;
   getBestStrategies: (limit?: number) => Promise<OrchestrationApiResponse<Strategy[]>>;
   activateStrategy: (strategyId: string) => Promise<OrchestrationApiResponse<null>>;
-  getActiveStrategies: () => Promise<OrchestrationApiResponse<Strategy[]>>;
+  getActiveStrategies: () => Promise<{ strategies: any[] }>;
   getSafetyStatus: () => Promise<OrchestrationApiResponse<SafetyStatus>>;
+  controlStrategy: (strategyId: string, action: 'start' | 'pause' | 'stop') => Promise<{success: boolean}>;
 }
 
-const orchestrationApi: OrchestratorApiService = {
+// Implement the API service
+const orchestrationApi: OrchestrationApiService = {
   /**
    * Get a combined overview of the system status.
    */
@@ -203,15 +241,19 @@ const orchestrationApi: OrchestratorApiService = {
   /**
    * Get the list of currently active (mock) strategies.
    */
-  getActiveStrategies: async (): Promise<OrchestrationApiResponse<Strategy[]>> => {
+  getActiveStrategies: async (): Promise<{ strategies: any[] }> => {
+    if (USE_MOCK_DATA) {
+      return new Promise((resolve) => {
+        setTimeout(() => resolve(mockStrategies), 500);
+      });
+    }
+
     try {
-      const response = await axios.get<OrchestrationApiResponse<Strategy[]>>(
-        `${apiBaseUrl}/orchestration/strategies/active`
-      );
-      return response.data; // Expects {success: boolean, strategies: Strategy[]}
+      const response = await axios.get(`${apiBaseUrl}/orchestration/strategies`);
+      return response.data;
     } catch (error) {
       console.error('Error fetching active strategies:', error);
-      return { success: false, strategies: [], error: 'Failed to fetch active strategies' };
+      throw error;
     }
   },
 
@@ -231,6 +273,28 @@ const orchestrationApi: OrchestratorApiService = {
       return { success: false, error: 'Failed to fetch safety status' };
     }
   },
+
+  /**
+   * Control a strategy (start, pause, stop)
+   */
+  controlStrategy: async (
+    strategyId: string, 
+    action: 'start' | 'pause' | 'stop'
+  ): Promise<{success: boolean}> => {
+    if (USE_MOCK_DATA) {
+      return new Promise((resolve) => {
+        setTimeout(() => resolve({ success: true }), 500);
+      });
+    }
+
+    try {
+      const response = await axios.post(`${apiBaseUrl}/orchestration/strategies/${strategyId}/${action}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error ${action}ing strategy ${strategyId}:`, error);
+      return { success: false };
+    }
+  }
 };
 
 export default orchestrationApi; 

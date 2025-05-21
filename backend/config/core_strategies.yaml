@@ -1,0 +1,72 @@
+strategies:
+  - id: mean_reversion_1
+    name: "Mean Reversion (Standard)"
+    type: mean_reversion
+    description: "Simple mean reversion strategy based on 20-day moving average"
+    version: 1.0
+    parameters:
+      lookback_period: 20
+      entry_threshold: 1.5
+      exit_threshold: 0.5
+      stop_loss_percent: 3.0
+      take_profit_percent: 5.0
+    instruments:
+      - SPY
+      - QQQ
+      - AAPL
+      - MSFT
+    timeframe: 1d
+    enabled: true
+    priority: 100
+
+  - id: trend_following_1
+    name: "Trend Following (MACD)"
+    type: trend_following
+    description: "MACD-based trend following strategy"
+    version: 1.0
+    parameters:
+      fast_period: 12
+      slow_period: 26
+      signal_period: 9
+      entry_threshold: 0.0002
+    instruments:
+      - SPY
+      - QQQ
+      - IWM
+    timeframe: 4h
+    enabled: true
+    priority: 90
+    
+  - id: breakout_1
+    name: "Volatility Breakout"
+    type: breakout
+    description: "Volatility-based breakout strategy using Bollinger Bands"
+    version: 1.0
+    parameters:
+      bb_period: 20
+      bb_std_dev: 2.0
+      volume_threshold: 1.5
+    instruments:
+      - TSLA
+      - NVDA
+      - AMD
+    timeframe: 1h
+    enabled: true
+    priority: 80
+    
+  - id: sentiment_1
+    name: "News Sentiment"
+    type: sentiment
+    description: "Trading based on news sentiment and volume"
+    version: 1.0
+    parameters:
+      sentiment_threshold: 0.7
+      volume_increase_threshold: 2.0
+      position_hold_time: 24  # hours
+    instruments:
+      - AAPL
+      - META
+      - AMZN
+    timeframe: 1d
+    enabled: false  # Disabled by default until more testing
+    priority: 70 

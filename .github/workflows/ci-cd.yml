@@ -1,0 +1,311 @@
+name: BensBot CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  # Allow manual triggering
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.10"
+  NODE_VERSION: "20"
+
+jobs:
+  python-lint:
+    name: Python Linting & Type Checking
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 mypy black isort
+          pip install -r requirements.txt
+          
+      - name: Run flake8
+        run: flake8 trading_bot
+        
+      - name: Run mypy
+        run: mypy trading_bot
+        
+      - name: Check formatting with black
+        run: black --check trading_bot
+        
+      - name: Check imports with isort
+        run: isort --check trading_bot
+
+  python-test:
+    name: Python Unit & Integration Tests
+    runs-on: ubuntu-latest
+    needs: python-lint
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+          pip install -r requirements.txt
+          
+      - name: Run tests
+        run: |
+          pytest --cov=trading_bot --cov-report=xml tests/
+          
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+  
+  js-lint:
+    name: JavaScript/TypeScript Linting
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          cd new-trading-dashboard
+          npm ci
+          
+      - name: Run ESLint
+        run: |
+          cd new-trading-dashboard
+          npm run lint
+        continue-on-error: true  # Don't fail the build yet
+        
+      - name: Run TypeScript Compiler Check
+        run: |
+          cd new-trading-dashboard
+          npm run tsc:check
+
+  js-test:
+    name: JavaScript/TypeScript Tests
+    runs-on: ubuntu-latest
+    needs: js-lint
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          cd new-trading-dashboard
+          npm ci
+          
+      - name: Run tests
+        run: |
+          cd new-trading-dashboard
+          npm test
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: [python-test, js-test]
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Build Python Package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build wheel
+          python -m build
+          
+      - name: Build React Dashboard
+        run: |
+          cd new-trading-dashboard
+          npm ci
+          npm run build
+          
+      - name: Upload Python Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-dist
+          path: dist/
+          
+      - name: Upload Dashboard Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: dashboard-dist
+          path: new-trading-dashboard/dist/
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install security tools
+        run: |
+          python -m pip install bandit safety
+          
+      - name: Run Bandit (Python security scanning)
+        run: |
+          bandit -r trading_bot -x tests,scripts
+          
+      - name: Run Safety (dependency vulnerability scanning)
+        run: |
+          safety check -r requirements.txt
+        continue-on-error: true  # Report issues but don't fail build
+
+  deploy-dev:
+    name: Deploy to Development
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [build, security-scan]
+    environment: development
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Download Python Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: python-dist
+          path: dist/
+          
+      - name: Download Dashboard Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: dashboard-dist
+          path: dashboard-dist/
+          
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Deploy to Development Server
+        env:
+          SERVER_HOST: ${{ secrets.DEV_SERVER_HOST }}
+          SERVER_USER: ${{ secrets.DEV_SERVER_USER }}
+          DEPLOY_PATH: ${{ secrets.DEV_DEPLOY_PATH }}
+        run: |
+          # Add server to known hosts
+          ssh-keyscan -H $SERVER_HOST >> ~/.ssh/known_hosts
+          
+          # Create remote directory if it doesn't exist
+          ssh $SERVER_USER@$SERVER_HOST "mkdir -p $DEPLOY_PATH"
+          
+          # Deploy Python package
+          scp dist/*.whl $SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/
+          
+          # Deploy React Dashboard
+          scp -r dashboard-dist/* $SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/dashboard/
+          
+          # Deploy scripts
+          scp scripts/deploy_live.sh $SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/
+          
+          # Make deployment script executable and run it
+          ssh $SERVER_USER@$SERVER_HOST "chmod +x $DEPLOY_PATH/deploy_live.sh && cd $DEPLOY_PATH && ./deploy_live.sh"
+
+  deploy-prod:
+    name: Deploy to Production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Release v')
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    environment: production
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Download Python Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: python-dist
+          path: dist/
+          
+      - name: Download Dashboard Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: dashboard-dist
+          path: dashboard-dist/
+          
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Deploy to Production Server
+        env:
+          SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
+          SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+          DEPLOY_PATH: ${{ secrets.PROD_DEPLOY_PATH }}
+        run: |
+          # Add server to known hosts
+          ssh-keyscan -H $SERVER_HOST >> ~/.ssh/known_hosts
+          
+          # Create remote directory if it doesn't exist
+          ssh $SERVER_USER@$SERVER_HOST "mkdir -p $DEPLOY_PATH"
+          
+          # Deploy Python package
+          scp dist/*.whl $SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/
+          
+          # Deploy React Dashboard
+          scp -r dashboard-dist/* $SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/dashboard/
+          
+          # Deploy scripts
+          scp scripts/deploy_live.sh $SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/
+          
+          # Make deployment script executable and run it
+          ssh $SERVER_USER@$SERVER_HOST "chmod +x $DEPLOY_PATH/deploy_live.sh && cd $DEPLOY_PATH && ./deploy_live.sh"
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+          name: ${{ github.event.head_commit.message }}
+          tag_name: ${{ github.event.head_commit.message }} 

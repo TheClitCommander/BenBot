@@ -2,10 +2,10 @@ import axios from 'axios';
 import { mockHealthStatus, mockAlerts } from './mockData';
 
 // Base API URL - ensure this matches your environment configuration
-const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// Use mock data for development
-const USE_MOCK_DATA = true;
+// Use mock data for development - set to false to use real API
+const USE_MOCK_DATA = false;
 
 // --- TypeScript Interfaces for Health Monitor API ---
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 // WebSocket connection URL
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000/ws';
+const WS_URL = import.meta.env.VITE_API_URL?.replace('http', 'ws') || 'ws://localhost:8000/ws';
 
 // Message types
 export interface WebSocketMessage<T = any> {

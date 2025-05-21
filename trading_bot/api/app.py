@@ -9,11 +9,16 @@ system functionality.
 import logging
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import asyncio
 import json
 from datetime import datetime
 import os
+from fastapi.staticfiles import StaticFiles
+from .websocket import websocket_manager
+from trading_bot.core.trading_engine import TradingEngine
+from trading_bot.core.portfolio import Portfolio
+from trading_bot.core.market_data import MarketData
 
 # Import routers
 from trading_bot.api.routers.safety import router as safety_router
@@ -182,6 +187,14 @@ app.add_middleware(MonitoringMiddleware)
 # Add performance middleware for tracking slow requests
 app.add_middleware(PerformanceMiddleware)
 
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Initialize core components
+trading_engine = TradingEngine()
+portfolio = Portfolio()
+market_data = MarketData()
+
 # Include routers
 app.include_router(safety_router)
 app.include_router(health_router)
@@ -218,25 +231,16 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info("WebSocket client connected")
     
     try:
-        # Mock data for demonstration
+        await websocket_manager.connect(websocket)
         while True:
-            # Send a ping every 5 seconds with some mock data
-            mock_data = {
-                "type": "trade_update",
-                "data": {
-                    "timestamp": datetime.now().isoformat(),
-                    "symbol": "BTC/USD",
-                    "price": 28500 + (hash(datetime.now().isoformat()) % 1000),
-                    "volume": 0.05,
-                    "side": "buy"
-                }
-            }
-            await websocket.send_text(json.dumps(mock_data))
-            await asyncio.sleep(5)
+            data = await websocket.receive_text()
+            # Handle incoming messages if needed
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {str(e)}")
+    finally:
+        websocket_manager.disconnect(websocket)
 
 # Enhanced exception handling for production
 @app.exception_handler(HTTPException)
@@ -284,6 +288,62 @@ async def root():
         "docs": "/docs" if not IS_PRODUCTION else None
     }
 
+@app.get("/api/portfolio")
+async def get_portfolio():
+    return {
+        "total_value": portfolio.get_total_value(),
+        "daily_pnl": portfolio.get_daily_pnl(),
+        "win_rate": portfolio.get_win_rate(),
+        "active_trades": len(portfolio.get_active_trades())
+    }
+
+@app.get("/api/trades")
+async def get_trades():
+    trades = portfolio.get_recent_trades()
+    return {
+        "trades": [
+            {
+                "symbol": trade.symbol,
+                "side": trade.side,
+                "quantity": trade.quantity,
+                "price": trade.price,
+                "total": trade.total,
+                "timestamp": trade.timestamp.isoformat()
+            }
+            for trade in trades
+        ]
+    }
+
+@app.post("/api/order")
+async def place_order(order_data: dict):
+    try:
+        result = trading_engine.place_order(
+            symbol=order_data["symbol"],
+            side=order_data["side"],
+            quantity=order_data["quantity"],
+            order_type=order_data["order_type"],
+            price=order_data.get("price")
+        )
+        return {"status": "success", "order_id": result.order_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/market-data/{symbol}")
+async def get_market_data(symbol: str):
+    try:
+        data = market_data.get_symbol_data(symbol)
+        return {
+            "symbol": symbol,
+            "price": data.price,
+            "volume": data.volume,
+            "timestamp": data.timestamp.isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Symbol {symbol} not found")
+
+async def start_data_stream():
+    await websocket_manager.start_data_stream()
+
 # Startup and shutdown events
 @app.on_event("startup")
 async def startup_event():
@@ -296,6 +356,8 @@ async def startup_event():
     # Make sure we have required directories
     for dir_path in ["./data", "./config", "./logs"]:
         os.makedirs(dir_path, exist_ok=True)
+
+    asyncio.create_task(start_data_stream())
 
 @app.on_event("shutdown")
 async def shutdown_event():

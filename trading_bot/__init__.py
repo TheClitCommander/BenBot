@@ -1,5 +1,5 @@
 """
-BensBot Trading System.
+BensBot trading system main package.
 
 A multi-asset trading system with evolutionary algorithm capabilities.
 """
@@ -16,21 +16,26 @@ DEFAULT_LOG_DIR = os.path.join(os.path.expanduser("~"), ".benbot", "logs")
 
 # Setup logging with default settings
 os.makedirs(DEFAULT_LOG_DIR, exist_ok=True)
-DEFAULT_LOG_FILE = os.path.join(DEFAULT_LOG_DIR, "benbot.log")
 setup_logging(
     log_level="INFO",
-    log_file=DEFAULT_LOG_FILE,
-    component_levels={
+    log_dir=DEFAULT_LOG_DIR,
+    module_levels={
         "trading_bot.core.evolution": "DEBUG",
         "trading_bot.core.backtesting": "INFO",
-        "trading_bot.core.strategies": "INFO"
+        "trading_bot.core.strategies": "INFO",
+        "trading_bot.strategy": "INFO"
     }
 )
 
 logger = get_component_logger(__name__)
 logger.info("Initializing BensBot Trading System")
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
+
+# Import strategy base classes
+from trading_bot.strategy.base import Strategy, StrategyConfig, StrategyType
+from trading_bot.strategy.ai_sentiment_strategy import AiSentimentStrategy
+from trading_bot.strategy.strategy_rotator import StrategyRotator
 
 # Initialize strategy factory
 from trading_bot.core.strategies import strategy_factory
@@ -73,6 +78,27 @@ def initialize_system(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]
     )
     logger.info("Initialized evolutionary trading engine")
     
+    # Initialize Strategy Rotator
+    strategy_rotator = StrategyRotator()
+    
+    # Create and register AI sentiment strategy if enabled in config
+    if config and config.get("enable_ai_sentiment", True):
+        ai_strategy_config = StrategyConfig(
+            id="ai-sentiment-1",
+            name="AI Market Sentiment",
+            type=StrategyType.SENTIMENT,
+            parameters={
+                "sentiment_threshold": 0.3,
+                "position_size_factor": 1.0
+            },
+            instruments=["SPY", "QQQ", "AAPL", "MSFT", "NVDA"],
+            timeframe="1d",
+            enabled=True,
+            priority=90
+        )
+        strategy_rotator.add_strategy(AiSentimentStrategy(ai_strategy_config))
+        logger.info("Registered AI Sentiment Strategy with Strategy Rotator")
+    
     # Initialize execution components
     from trading_bot.core.execution.evo_adapter import TradeExecutor, EvoToExecAdapter
     trade_executor = TradeExecutor()
@@ -94,5 +120,6 @@ def initialize_system(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]
         "adapter": evo_adapter,
         "trade_executor": trade_executor,
         "data_fetcher": data_fetcher,
-        "backtester_registry": backtester_registry
+        "backtester_registry": backtester_registry,
+        "strategy_rotator": strategy_rotator
     } 

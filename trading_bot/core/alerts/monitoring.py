@@ -169,7 +169,7 @@ class MetricsExporter:
                 "strategy_id": strategy_id,
                 "result": result,
                 "pnl": pnl,
-                **metadata or {}
+                **(metadata or {})
             })
         except Exception as e:
             logger.error(f"Error recording trade metric: {e}")

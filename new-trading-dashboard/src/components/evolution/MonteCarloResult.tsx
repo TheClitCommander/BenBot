@@ -1,14 +1,4 @@
 import React from 'react';
-import {
-  Card,
-  CardContent,
-  Typography,
-  Box,
-  Grid,
-  Divider,
-  Tooltip
-} from '@mui/material';
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 
 interface MonteCarloResultProps {
   strategy_id: string;
@@ -59,123 +49,121 @@ const getConsistencyRating = (score: number): { label: string; color: string } =
 };
 
 const MonteCarloResult: React.FC<MonteCarloResultProps> = ({
-  strategy_id,
   strategy_name,
-  asset_class,
   monte_carlo_data,
   initial_capital
 }) => {
   const consistency = getConsistencyRating(monte_carlo_data.consistency_score);
   
   return (
-    <Card>
-      <CardContent>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Typography variant="h6">{strategy_name}</Typography>
-          <Typography 
-            variant="subtitle2"
-            sx={{ 
-              textTransform: 'uppercase',
-              bgcolor: consistency.color,
-              color: 'white',
-              px: 1,
-              py: 0.5,
-              borderRadius: 1
-            }}
-          >
-            {consistency.label}
-          </Typography>
-        </Box>
+    <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-xl font-semibold">{strategy_name}</h3>
+        <span 
+          className="px-2 py-1 text-xs font-semibold uppercase rounded"
+          style={{ 
+            backgroundColor: consistency.color,
+            color: 'white'
+          }}
+        >
+          {consistency.label}
+        </span>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Left side - Plot if available */}
+        {monte_carlo_data.monte_carlo_plot && (
+          <div>
+            <img 
+              src={`data:image/png;base64,${monte_carlo_data.monte_carlo_plot}`}
+              alt="Monte Carlo Simulation"
+              className="w-full h-auto rounded border border-gray-200"
+            />
+          </div>
+        )}
         
-        <Grid container spacing={2}>
-          {/* Left side - Plot if available */}
-          {monte_carlo_data.monte_carlo_plot && (
-            <Grid item xs={12} md={6}>
-              <Box 
-                component="img"
-                src={`data:image/png;base64,${monte_carlo_data.monte_carlo_plot}`}
-                alt="Monte Carlo Simulation"
-                sx={{
-                  width: '100%',
-                  height: 'auto',
-                  borderRadius: 1,
-                  border: '1px solid #eee'
-                }}
-              />
-            </Grid>
-          )}
-          
-          {/* Right side - Statistics */}
-          <Grid item xs={12} md={monte_carlo_data.monte_carlo_plot ? 6 : 12}>
-            <Box mb={2}>
-              <Typography variant="subtitle2" gutterBottom>
-                Monte Carlo Analysis
-                <Tooltip title="Simulation results based on 1,000 alternative return sequences">
-                  <HelpOutlineIcon sx={{ ml: 0.5, fontSize: 16, verticalAlign: 'text-bottom' }} />
-                </Tooltip>
-              </Typography>
-              
-              <Divider sx={{ my: 1 }} />
-              
-              <Grid container spacing={1}>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Consistency Score:</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" fontWeight="medium">{monte_carlo_data.consistency_score.toFixed(2)}</Typography>
-                </Grid>
-                
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">
-                    5th Percentile Outcome:
-                    <Tooltip title="There's a 5% chance the strategy could perform worse than this value">
-                      <HelpOutlineIcon sx={{ ml: 0.5, fontSize: 14, verticalAlign: 'text-bottom' }} />
-                    </Tooltip>
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" fontWeight="medium">
-                    {formatCurrency(monte_carlo_data.monte_carlo_percentile_5)}
-                  </Typography>
-                </Grid>
-                
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">
-                    95th Percentile Outcome:
-                    <Tooltip title="There's a 5% chance the strategy could perform better than this value">
-                      <HelpOutlineIcon sx={{ ml: 0.5, fontSize: 14, verticalAlign: 'text-bottom' }} />
-                    </Tooltip>
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" fontWeight="medium">
-                    {formatCurrency(monte_carlo_data.monte_carlo_percentile_95)}
-                  </Typography>
-                </Grid>
-                
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">
-                    95th Percentile Max Drawdown:
-                    <Tooltip title="There's a 5% chance the strategy could have a worse drawdown than this value">
-                      <HelpOutlineIcon sx={{ ml: 0.5, fontSize: 14, verticalAlign: 'text-bottom' }} />
-                    </Tooltip>
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" fontWeight="medium" color="error">
-                    {formatPercentage(monte_carlo_data.monte_carlo_max_dd_percentile_95)}
-                  </Typography>
-                </Grid>
-              </Grid>
-            </Box>
+        {/* Right side - Statistics */}
+        <div>
+          <div className="mb-4">
+            <h4 className="font-medium mb-2 flex items-center">
+              Monte Carlo Analysis
+              <span className="ml-1 text-gray-500 cursor-help relative group">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <span className="invisible group-hover:visible absolute z-10 bg-black text-white text-xs p-2 rounded w-48 left-0 ml-6 -mt-1">
+                  Simulation results based on 1,000 alternative return sequences
+                </span>
+              </span>
+            </h4>
             
-            <Typography variant="caption" color="text.secondary" display="block" textAlign="right">
-              Initial Capital: {formatCurrency(initial_capital)}
-            </Typography>
-          </Grid>
-        </Grid>
-      </CardContent>
-    </Card>
+            <div className="border-t border-gray-200 my-2"></div>
+            
+            <div className="grid grid-cols-2 gap-y-2">
+              <div className="text-sm text-gray-600">Consistency Score:</div>
+              <div className="text-sm font-medium">{monte_carlo_data.consistency_score.toFixed(2)}</div>
+              
+              <div className="text-sm text-gray-600 flex items-center">
+                5th Percentile Outcome:
+                <span className="ml-1 text-gray-500 cursor-help relative group">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                  </svg>
+                  <span className="invisible group-hover:visible absolute z-10 bg-black text-white text-xs p-2 rounded w-48 left-0 ml-6 -mt-1">
+                    There's a 5% chance the strategy could perform worse than this value
+                  </span>
+                </span>
+              </div>
+              <div className="text-sm font-medium">
+                {formatCurrency(monte_carlo_data.monte_carlo_percentile_5)}
+              </div>
+              
+              <div className="text-sm text-gray-600 flex items-center">
+                95th Percentile Outcome:
+                <span className="ml-1 text-gray-500 cursor-help relative group">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                  </svg>
+                  <span className="invisible group-hover:visible absolute z-10 bg-black text-white text-xs p-2 rounded w-48 left-0 ml-6 -mt-1">
+                    There's a 5% chance the strategy could perform better than this value
+                  </span>
+                </span>
+              </div>
+              <div className="text-sm font-medium">
+                {formatCurrency(monte_carlo_data.monte_carlo_percentile_95)}
+              </div>
+              
+              <div className="text-sm text-gray-600 flex items-center">
+                95th Percentile Max Drawdown:
+                <span className="ml-1 text-gray-500 cursor-help relative group">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                  </svg>
+                  <span className="invisible group-hover:visible absolute z-10 bg-black text-white text-xs p-2 rounded w-48 left-0 ml-6 -mt-1">
+                    There's a 5% chance the strategy could have a worse drawdown than this value
+                  </span>
+                </span>
+              </div>
+              <div className="text-sm font-medium text-red-600">
+                {formatPercentage(monte_carlo_data.monte_carlo_max_dd_percentile_95)}
+              </div>
+            </div>
+          </div>
+          
+          <div className="text-xs text-gray-500 text-right">
+            Initial Capital: {formatCurrency(initial_capital)}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 
